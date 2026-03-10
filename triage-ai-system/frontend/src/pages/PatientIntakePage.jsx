@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -78,6 +78,175 @@ const PatientIntakePage = () => {
   const [result, setResult] = useState(null);
   const [selectedSymptoms, setSelectedSymptoms] = useState([]);
   const [selectedConditions, setSelectedConditions] = useState([]);
+  
+  // Patient profiles state
+  const [profiles, setProfiles] = useState([]);
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [profileSearch, setProfileSearch] = useState('');
+  const [showProfilePanel, setShowProfilePanel] = useState(true);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  // Critical Emergency state
+  const [showCriticalModal, setShowCriticalModal] = useState(false);
+  const [criticalName, setCriticalName] = useState('');
+  const [criticalDescription, setCriticalDescription] = useState('');
+  const [isSubmittingCritical, setIsSubmittingCritical] = useState(false);
+  const [criticalResult, setCriticalResult] = useState(null);
+
+  // Handle critical emergency submission
+  const handleCriticalEmergency = async () => {
+    if (!criticalName.trim()) {
+      toast.error('Please enter patient name');
+      return;
+    }
+    
+    setIsSubmittingCritical(true);
+    try {
+      const res = await triageAPI.submitCriticalEmergency({
+        name: criticalName.trim(),
+        brief_description: criticalDescription.trim() || undefined
+      });
+      
+      setCriticalResult(res.data);
+      
+      let message = `🚨 CRITICAL: ${criticalName} registered as emergency patient!`;
+      if (res.data.auto_assigned_doctor) {
+        message += `\n\nDoctor Assigned: ${res.data.auto_assigned_doctor}`;
+        if (res.data.unassigned_from) {
+          message += ` (Reassigned from ${res.data.unassigned_from})`;
+        }
+      } else if (res.data.warning) {
+        toast.error(res.data.warning, { duration: 5000 });
+      }
+      
+      toast.success(message, { duration: 6000 });
+      
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Failed to register critical emergency');
+    } finally {
+      setIsSubmittingCritical(false);
+    }
+  };
+
+  // Reset critical modal
+  const resetCriticalModal = () => {
+    setShowCriticalModal(false);
+    setCriticalName('');
+    setCriticalDescription('');
+    setCriticalResult(null);
+  };
+
+  // Fetch profiles on mount
+  useEffect(() => {
+    fetchProfiles();
+  }, []);
+
+  const fetchProfiles = async (search = '') => {
+    try {
+      const res = await triageAPI.getProfiles(search);
+      setProfiles(res.data.profiles || []);
+    } catch (err) {
+      console.error('Failed to fetch profiles:', err);
+    }
+  };
+
+  // Search profiles with debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProfiles(profileSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [profileSearch]);
+
+  // Select a profile and populate form
+  const selectProfile = (profile) => {
+    setSelectedProfile(profile);
+    setFormData({
+      name: profile.name || '',
+      age: profile.age?.toString() || '',
+      gender: profile.gender || 'Male',
+      symptoms_text: '',
+      heart_rate: '',
+      blood_pressure: '',
+      temperature: '',
+      spo2: '',
+      respiratory_rate: '',
+      medical_history: profile.medical_history?.join(', ') || ''
+    });
+    setSelectedConditions(profile.medical_history || []);
+    setSelectedSymptoms([]);
+    setShowProfilePanel(false);
+    toast.success(`Loaded profile: ${profile.name}`);
+  };
+
+  // Clear form for new patient
+  const startNewPatient = () => {
+    setSelectedProfile(null);
+    setFormData({
+      name: '', age: '', gender: 'Male', symptoms_text: '',
+      heart_rate: '', blood_pressure: '', temperature: '',
+      spo2: '', respiratory_rate: '', medical_history: ''
+    });
+    setSelectedSymptoms([]);
+    setSelectedConditions([]);
+    setResult(null);
+    setShowProfilePanel(false);
+  };
+
+  // Save current patient as profile
+  const saveAsProfile = async () => {
+    if (!formData.name || !formData.age) {
+      toast.error('Name and age required to save profile');
+      return;
+    }
+    setIsSavingProfile(true);
+    try {
+      const profileData = {
+        name: formData.name,
+        age: parseInt(formData.age, 10),
+        gender: formData.gender,
+        medical_history: selectedConditions.length > 0 
+          ? selectedConditions 
+          : formData.medical_history.split(',').map(m => m.trim()).filter(Boolean),
+        notes: ''
+      };
+      
+      if (selectedProfile) {
+        // Update existing profile
+        await triageAPI.updateProfile(selectedProfile.profile_id, profileData);
+        toast.success('Profile updated!');
+      } else {
+        // Create new profile
+        await triageAPI.createProfile(profileData);
+        toast.success('Profile saved!');
+      }
+      fetchProfiles();
+    } catch (err) {
+      toast.error('Failed to save profile');
+      console.error(err);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  // Delete a profile
+  const deleteProfile = async (profileId, profileName, e) => {
+    e.stopPropagation(); // Prevent selecting the profile
+    if (!confirm(`Delete profile for "${profileName}"? This cannot be undone.`)) return;
+    
+    try {
+      await triageAPI.deleteProfile(profileId);
+      toast.success(`Profile deleted: ${profileName}`);
+      if (selectedProfile?.profile_id === profileId) {
+        setSelectedProfile(null);
+      }
+      fetchProfiles();
+    } catch (err) {
+      toast.error('Failed to delete profile');
+      console.error(err);
+    }
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -143,6 +312,15 @@ const PatientIntakePage = () => {
       setResult(triageRes.data);
       toast.success("Patient triaged successfully!");
       
+      // Record visit if using saved profile
+      if (selectedProfile) {
+        try {
+          await triageAPI.recordProfileVisit(selectedProfile.profile_id);
+        } catch (err) {
+          console.error('Failed to record profile visit:', err);
+        }
+      }
+      
     } catch (error) {
       console.error(error);
       const detail = error.response?.data?.detail;
@@ -168,14 +346,289 @@ const PatientIntakePage = () => {
             <h1 className="text-3xl lg:text-4xl font-black text-white tracking-tight">Emergency Patient Intake</h1>
             <p className="text-slate-500 mt-1 text-sm tracking-wide">Enter patient vitals and symptoms for AI-powered triage assessment</p>
           </div>
-          <Link
-            to="/admin/login"
-            className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:border-amber-500/50 px-5 py-3 rounded-xl text-sm font-bold tracking-wide transition-all duration-300 hover:shadow-[0_0_15px_rgba(245,158,11,0.15)] shrink-0"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-            Admin Dashboard
-          </Link>
+          <div className="flex gap-3">
+            {/* Critical Emergency Button */}
+            <button
+              onClick={() => setShowCriticalModal(true)}
+              className="flex items-center gap-2 bg-red-600/30 hover:bg-red-600/50 text-red-400 border-2 border-red-500 hover:border-red-400 px-5 py-3 rounded-xl text-sm font-black tracking-wide transition-all duration-300 shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)] animate-pulse hover:animate-none"
+            >
+              🚨 CRITICAL EMERGENCY
+            </button>
+            <Link
+              to="/admin/login"
+              className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:border-amber-500/50 px-5 py-3 rounded-xl text-sm font-bold tracking-wide transition-all duration-300 hover:shadow-[0_0_15px_rgba(245,158,11,0.15)] shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+              Admin Dashboard
+            </Link>
+          </div>
         </motion.header>
+
+        {/* Critical Emergency Modal */}
+        <AnimatePresence>
+          {showCriticalModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+              onClick={(e) => e.target === e.currentTarget && !criticalResult && resetCriticalModal()}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="w-full max-w-lg bg-gradient-to-b from-red-950/90 to-slate-950 border-2 border-red-500 rounded-2xl p-6 shadow-[0_0_50px_rgba(239,68,68,0.4)]"
+              >
+                {!criticalResult ? (
+                  <>
+                    <div className="text-center mb-6">
+                      <div className="text-6xl mb-3 animate-bounce">🚨</div>
+                      <h2 className="text-2xl font-black text-red-400 uppercase tracking-widest">Critical Emergency</h2>
+                      <p className="text-slate-400 text-sm mt-2">Quick registration - Patient will be marked as highest priority</p>
+                    </div>
+                    
+                    <div className="space-y-4">
+                      {/* Patient Name - Required */}
+                      <div>
+                        <label className="text-[10px] text-red-400 uppercase tracking-[0.2em] font-bold block mb-2">
+                          Patient Name <span className="text-white">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={criticalName}
+                          onChange={(e) => setCriticalName(e.target.value)}
+                          placeholder="Enter patient name"
+                          className="w-full bg-black/50 border-2 border-red-500/50 focus:border-red-500 rounded-xl px-4 py-4 text-white text-lg placeholder:text-slate-600 focus:outline-none transition-all"
+                          autoFocus
+                        />
+                      </div>
+                      
+                      {/* Brief Description - Optional */}
+                      <div>
+                        <label className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold block mb-2">
+                          Brief Description (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={criticalDescription}
+                          onChange={(e) => setCriticalDescription(e.target.value)}
+                          placeholder="e.g., Unconscious, Chest pain, Accident..."
+                          className="w-full bg-black/50 border border-red-500/30 rounded-xl px-4 py-3 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-red-500/60 transition-all"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-3 mt-6">
+                      <button
+                        onClick={resetCriticalModal}
+                        className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 rounded-xl text-sm font-bold uppercase tracking-wider transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleCriticalEmergency}
+                        disabled={isSubmittingCritical || !criticalName.trim()}
+                        className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-black uppercase tracking-wider transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                      >
+                        {isSubmittingCritical ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <span className="w-4 h-4 border-2 border-white/50 border-t-white rounded-full animate-spin"></span>
+                            Registering...
+                          </span>
+                        ) : (
+                          '🚨 REGISTER CRITICAL'
+                        )}
+                      </button>
+                    </div>
+                    
+                    <p className="text-slate-500 text-[10px] text-center mt-4 uppercase tracking-wider">
+                      Patient will be auto-assigned to available doctor and moved to top of queue
+                    </p>
+                  </>
+                ) : (
+                  /* Success State */
+                  <div className="text-center">
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 200 }}
+                      className="text-6xl mb-4"
+                    >
+                      ✅
+                    </motion.div>
+                    <h2 className="text-2xl font-black text-green-400 uppercase tracking-widest mb-2">Critical Patient Registered</h2>
+                    <p className="text-white text-xl font-bold mb-4">{criticalResult.name}</p>
+                    
+                    <div className="bg-red-950/50 border border-red-500/30 rounded-xl p-4 mb-4 text-left space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 text-sm">Patient ID:</span>
+                        <span className="text-white font-mono font-bold">#{criticalResult.patient_id}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400 text-sm">Triage Level:</span>
+                        <span className="text-red-400 font-bold uppercase">{criticalResult.triage_level}</span>
+                      </div>
+                      {criticalResult.auto_assigned_doctor && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 text-sm">Assigned Doctor:</span>
+                          <span className="text-purple-400 font-bold">{criticalResult.auto_assigned_doctor}</span>
+                        </div>
+                      )}
+                      {criticalResult.doctor_specialty && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 text-sm">Specialty:</span>
+                          <span className="text-slate-300">{criticalResult.doctor_specialty}</span>
+                        </div>
+                      )}
+                      {criticalResult.unassigned_from && (
+                        <div className="mt-2 pt-2 border-t border-red-500/20">
+                          <p className="text-amber-400 text-xs">
+                            ⚠️ Doctor reassigned from: {criticalResult.unassigned_from}
+                          </p>
+                        </div>
+                      )}
+                      {criticalResult.warning && (
+                        <div className="mt-2 pt-2 border-t border-red-500/20">
+                          <p className="text-amber-400 text-xs">
+                            ⚠️ {criticalResult.warning}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <p className="text-green-400 text-sm font-medium mb-4">
+                      Patient is now at the TOP of the queue with highest priority!
+                    </p>
+                    
+                    <div className="flex gap-3">
+                      <button
+                        onClick={resetCriticalModal}
+                        className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 rounded-xl text-sm font-bold uppercase tracking-wider transition-all"
+                      >
+                        Close
+                      </button>
+                      <button
+                        onClick={() => { resetCriticalModal(); setShowCriticalModal(true); }}
+                        className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-black uppercase tracking-wider transition-all shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                      >
+                        + Another Emergency
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Patient Profile Selection Panel */}
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          className="glass-card rounded-2xl p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-primary text-xs font-black uppercase tracking-[0.25em] flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-primary rounded-full"></span> 
+              Patient Profile
+              {selectedProfile && (
+                <span className="text-green-400 text-[10px] normal-case tracking-normal ml-2">
+                  (Using: {selectedProfile.name})
+                </span>
+              )}
+            </h3>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowProfilePanel(!showProfilePanel)}
+                className="px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/30 text-primary rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
+              >
+                {showProfilePanel ? 'Hide' : 'Select Patient'}
+              </button>
+              <button
+                type="button"
+                onClick={startNewPatient}
+                className="px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 border border-green-500/30 text-green-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
+              >
+                + New Patient
+              </button>
+            </div>
+          </div>
+          
+          <AnimatePresence>
+            {showProfilePanel && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                {/* Search Box */}
+                <div className="mb-3">
+                  <input
+                    type="text"
+                    value={profileSearch}
+                    onChange={(e) => setProfileSearch(e.target.value)}
+                    placeholder="Search saved patients..."
+                    className="w-full bg-black/50 border border-primary/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-primary/60 transition-all"
+                  />
+                </div>
+                
+                {/* Profile List */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                  {profiles.length === 0 ? (
+                    <div className="col-span-full text-center py-4 text-slate-500 text-sm">
+                      {profileSearch ? 'No matching profiles found' : 'No saved profiles yet'}
+                    </div>
+                  ) : (
+                    profiles.map((profile) => (
+                      <div
+                        key={profile.profile_id}
+                        className={`p-3 rounded-xl text-left transition-all border relative group cursor-pointer ${
+                          selectedProfile?.profile_id === profile.profile_id
+                            ? 'bg-primary/20 border-primary/50 shadow-[0_0_10px_rgba(0,242,255,0.15)]'
+                            : 'bg-black/30 border-white/10 hover:border-primary/30 hover:bg-black/50'
+                        }`}
+                        onClick={() => selectProfile(profile)}
+                      >
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={(e) => deleteProfile(profile.profile_id, profile.name, e)}
+                          className="absolute top-1 right-1 w-5 h-5 rounded bg-red-500/20 hover:bg-red-500/40 text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                          title="Delete profile"
+                        >
+                          ×
+                        </button>
+                        
+                        <div className="flex items-start justify-between pr-4">
+                          <div>
+                            <p className="text-white font-bold text-sm">{profile.name}</p>
+                            <p className="text-slate-500 text-xs">
+                              {profile.age}yo • {profile.gender}
+                            </p>
+                          </div>
+                          {profile.visit_count > 0 && (
+                            <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-medium">
+                              {profile.visit_count} visits
+                            </span>
+                          )}
+                        </div>
+                        {profile.medical_history?.length > 0 && (
+                          <p className="text-slate-600 text-[10px] mt-1 truncate">
+                            {profile.medical_history.slice(0, 3).join(', ')}
+                            {profile.medical_history.length > 3 && '...'}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* FORM — left side */}
@@ -403,12 +856,48 @@ const PatientIntakePage = () => {
                     </div>
                   )}
 
+                  {/* Save as Profile Button */}
+                  {!selectedProfile && (
+                    <button
+                      type="button"
+                      onClick={saveAsProfile}
+                      disabled={isSavingProfile}
+                      className="w-full py-3 rounded-xl border border-green-500/30 bg-green-500/10 hover:bg-green-500/20 text-green-400 text-xs font-bold uppercase tracking-[0.2em] transition-all duration-300 disabled:opacity-50"
+                    >
+                      {isSavingProfile ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <span className="w-3 h-3 border-2 border-green-500/50 border-t-green-500 rounded-full animate-spin"></span>
+                          Saving...
+                        </span>
+                      ) : (
+                        '💾 Save as Returning Patient Profile'
+                      )}
+                    </button>
+                  )}
+                  
+                  {selectedProfile && (
+                    <div className="w-full py-3 rounded-xl border border-primary/20 bg-primary/5 text-center">
+                      <p className="text-primary text-xs font-medium">
+                        ✓ Using saved profile: <span className="font-bold">{selectedProfile.name}</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={saveAsProfile}
+                        disabled={isSavingProfile}
+                        className="text-[10px] text-slate-500 hover:text-primary mt-1 uppercase tracking-wider transition-colors"
+                      >
+                        {isSavingProfile ? 'Updating...' : 'Update profile with current info'}
+                      </button>
+                    </div>
+                  )}
+
                   {/* New Patient Button */}
                   <button
                     onClick={() => {
                       setResult(null);
                       setSelectedSymptoms([]);
                       setSelectedConditions([]);
+                      setSelectedProfile(null);
                       setFormData({ name: '', age: '', gender: 'Male', symptoms_text: '', heart_rate: '', blood_pressure: '', temperature: '', spo2: '', respiratory_rate: '', medical_history: '' });
                     }}
                     className="w-full py-3 rounded-xl border border-primary/30 text-primary text-xs font-bold uppercase tracking-[0.2em] hover:bg-primary/10 transition-all duration-300"

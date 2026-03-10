@@ -14,12 +14,29 @@ const AdminDashboardPage = () => {
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [recommendedDoctor, setRecommendedDoctor] = useState(null);
+  const [activeTab, setActiveTab] = useState("queue"); // "queue" or "activity"
+  const [activityLogs, setActivityLogs] = useState([]);
 
   const STATUS_COLORS = {
     "WAITING": { text: "text-yellow-400", bg: "bg-yellow-500/20", border: "border-yellow-500/30" },
     "ASSIGNED": { text: "text-purple-400", bg: "bg-purple-500/20", border: "border-purple-500/30" },
     "IN_TREATMENT": { text: "text-blue-400", bg: "bg-blue-500/20", border: "border-blue-500/30" },
     "COMPLETED": { text: "text-green-400", bg: "bg-green-500/20", border: "border-green-500/30" },
+  };
+  
+  const ACTIVITY_ICONS = {
+    "PATIENT_REGISTERED": "👤",
+    "TRIAGE_COMPLETED": "🏥",
+    "DOCTOR_ASSIGNED": "👨‍⚕️",
+    "TREATMENT_STARTED": "💊",
+    "TREATMENT_COMPLETED": "✅",
+    "MARKED_CRITICAL": "🚨",
+    "PATIENT_DELETED": "🗑️",
+    "CRITICAL_EMERGENCY": "🔥",
+    "DOCTOR_REASSIGNED": "🔄",
+    "PROFILE_CREATED": "📋",
+    "PROFILE_UPDATED": "📝",
+    "PROFILE_DELETED": "🗂️",
   };
 
   const fetchDoctors = async () => {
@@ -41,6 +58,9 @@ const AdminDashboardPage = () => {
       // Refresh doctors list to update availability status
       const dRes = await triageAPI.getDoctors();
       setDoctors(dRes.data.doctors || []);
+      // Fetch activity logs
+      const actRes = await triageAPI.getActivityLogs(30);
+      setActivityLogs(actRes.data.logs || []);
     } catch (e) {
       console.error(e);
       // Fail silently on interval, loud on user action
@@ -114,6 +134,35 @@ const AdminDashboardPage = () => {
     }
   };
 
+  const handleMarkCritical = async (patientId, patientName) => {
+    if (!window.confirm(`Mark ${patientName} as CRITICAL PRIORITY?\n\nThis will:\n• Move them to the TOP of the queue\n• Auto-assign a doctor (may reassign from non-critical patients)\n• Change triage level to Critical`)) {
+      return;
+    }
+    try {
+      const res = await triageAPI.markCritical(patientId);
+      let message = `${patientName} marked as CRITICAL - moved to top of queue`;
+      
+      if (res.data.auto_assigned_doctor) {
+        message += `\n\nDoctor Auto-Assigned: ${res.data.auto_assigned_doctor} (${res.data.doctor_specialty})`;
+        if (res.data.unassigned_from) {
+          message += `\n(Reassigned from: ${res.data.unassigned_from})`;
+          toast.success(message, { duration: 5000 });
+        } else {
+          toast.success(message, { duration: 4000 });
+        }
+      } else {
+        toast.success(message);
+      }
+      
+      fetchData();
+      if (selectedPatient?.patient?.id === patientId) {
+        handlePatientClick(patientId);
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to mark patient as critical");
+    }
+  };
+
   const handleStatusChange = async (patientId, newStatus) => {
     try {
       await triageAPI.updateStatus({ patient_id: patientId, status: newStatus });
@@ -184,26 +233,118 @@ const AdminDashboardPage = () => {
     <main className="flex-1 p-6 lg:p-12 relative z-10 w-full overflow-y-auto">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* Analytics Top Bar */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="glass-card p-4 rounded-xl text-center">
-            <p className="text-slate-400 text-xs tracking-widest uppercase mb-2">Total Patients</p>
-            <p className="text-3xl font-bold text-white">{analytics?.total_patients || 0}</p>
+        {/* Live Queue Stats - Enhanced Metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          {/* Critical Patients - Highlighted */}
+          <div className="glass-card p-4 rounded-xl text-center border-2 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)] animate-pulse">
+            <p className="text-red-400 text-[10px] tracking-widest uppercase mb-1 font-bold">🚨 Critical</p>
+            <p className="text-3xl font-black text-red-500">{queue.filter(p => p.critical_priority).length}</p>
           </div>
-          <div className="glass-card p-4 rounded-xl text-center">
-            <p className="text-slate-400 text-xs tracking-widest uppercase mb-2">Critical %</p>
-            <p className="text-3xl font-bold text-red-400">{analytics?.critical_percentage || 0}%</p>
+          
+          {/* Waiting */}
+          <div className="glass-card p-3 rounded-xl text-center">
+            <p className="text-yellow-400 text-[10px] tracking-widest uppercase mb-1">Waiting</p>
+            <p className="text-2xl font-bold text-yellow-400">{queue.filter(p => p.status === 'WAITING').length}</p>
           </div>
-          <div className="glass-card p-4 rounded-xl text-center">
-            <p className="text-slate-400 text-xs tracking-widest uppercase mb-2">Override Rate</p>
-            <p className="text-3xl font-bold text-yellow-400">{analytics?.override_frequency_percentage || 0}%</p>
+          
+          {/* Assigned */}
+          <div className="glass-card p-3 rounded-xl text-center">
+            <p className="text-purple-400 text-[10px] tracking-widest uppercase mb-1">Assigned</p>
+            <p className="text-2xl font-bold text-purple-400">{queue.filter(p => p.status === 'ASSIGNED').length}</p>
           </div>
-          <div className="glass-card p-4 rounded-xl text-center flex gap-3 items-center justify-center">
-            <div className="w-3 h-3 rounded-full bg-green-400 animate-pulse"></div>
-            <p className="text-green-400 font-mono text-sm tracking-widest font-bold">LIVE QUEUE<br/><span className="text-[10px] text-slate-500">5S REFRESH</span></p>
+          
+          {/* In Treatment */}
+          <div className="glass-card p-3 rounded-xl text-center">
+            <p className="text-blue-400 text-[10px] tracking-widest uppercase mb-1">Treating</p>
+            <p className="text-2xl font-bold text-blue-400">{queue.filter(p => p.status === 'IN_TREATMENT').length}</p>
+          </div>
+          
+          {/* Total Active */}
+          <div className="glass-card p-3 rounded-xl text-center">
+            <p className="text-slate-400 text-[10px] tracking-widest uppercase mb-1">Total</p>
+            <p className="text-2xl font-bold text-white">{queue.filter(p => p.status !== 'COMPLETED').length}</p>
+          </div>
+          
+          {/* Live Indicator */}
+          <div className="glass-card p-3 rounded-xl flex gap-2 items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+            <p className="text-green-400 font-mono text-xs tracking-widest font-bold">LIVE</p>
+          </div>
+        </div>
+        
+        {/* Priority Distribution Bar */}
+        <div className="glass-card p-4 rounded-xl">
+          <h3 className="text-primary text-xs font-bold uppercase tracking-widest mb-3">Current Queue Priority Distribution</h3>
+          <div className="flex gap-1 h-6 rounded-lg overflow-hidden">
+            {queue.filter(p => p.triage_level === 'Critical' && p.status !== 'COMPLETED').length > 0 && (
+              <div 
+                className="bg-red-500 flex items-center justify-center text-[9px] text-white font-bold"
+                style={{ width: `${(queue.filter(p => p.triage_level === 'Critical' && p.status !== 'COMPLETED').length / Math.max(queue.filter(p => p.status !== 'COMPLETED').length, 1)) * 100}%` }}
+              >
+                {queue.filter(p => p.triage_level === 'Critical' && p.status !== 'COMPLETED').length}
+              </div>
+            )}
+            {queue.filter(p => p.triage_level === 'Urgent' && p.status !== 'COMPLETED').length > 0 && (
+              <div 
+                className="bg-orange-500 flex items-center justify-center text-[9px] text-white font-bold"
+                style={{ width: `${(queue.filter(p => p.triage_level === 'Urgent' && p.status !== 'COMPLETED').length / Math.max(queue.filter(p => p.status !== 'COMPLETED').length, 1)) * 100}%` }}
+              >
+                {queue.filter(p => p.triage_level === 'Urgent' && p.status !== 'COMPLETED').length}
+              </div>
+            )}
+            {queue.filter(p => p.triage_level === 'Moderate' && p.status !== 'COMPLETED').length > 0 && (
+              <div 
+                className="bg-yellow-500 flex items-center justify-center text-[9px] text-black font-bold"
+                style={{ width: `${(queue.filter(p => p.triage_level === 'Moderate' && p.status !== 'COMPLETED').length / Math.max(queue.filter(p => p.status !== 'COMPLETED').length, 1)) * 100}%` }}
+              >
+                {queue.filter(p => p.triage_level === 'Moderate' && p.status !== 'COMPLETED').length}
+              </div>
+            )}
+            {queue.filter(p => p.triage_level === 'Non Urgent' && p.status !== 'COMPLETED').length > 0 && (
+              <div 
+                className="bg-green-500 flex items-center justify-center text-[9px] text-white font-bold"
+                style={{ width: `${(queue.filter(p => p.triage_level === 'Non Urgent' && p.status !== 'COMPLETED').length / Math.max(queue.filter(p => p.status !== 'COMPLETED').length, 1)) * 100}%` }}
+              >
+                {queue.filter(p => p.triage_level === 'Non Urgent' && p.status !== 'COMPLETED').length}
+              </div>
+            )}
+            {queue.filter(p => p.status !== 'COMPLETED').length === 0 && (
+              <div className="bg-slate-700 flex-1 flex items-center justify-center text-[9px] text-slate-400">No active patients</div>
+            )}
+          </div>
+          <div className="flex justify-between mt-2 text-[9px] text-slate-500">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-red-500"></span> Critical</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-orange-500"></span> Urgent</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-yellow-500"></span> Moderate</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-green-500"></span> Non Urgent</span>
           </div>
         </div>
 
+        {/* Tab Buttons */}
+        <div className="flex gap-4 mb-6">
+          <button
+            onClick={() => setActiveTab("queue")}
+            className={`px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${
+              activeTab === "queue"
+                ? "bg-primary/20 border-2 border-primary text-primary shadow-[0_0_15px_rgba(0,242,255,0.3)]"
+                : "bg-black/40 border border-primary/20 text-slate-400 hover:border-primary/50"
+            }`}
+          >
+            📋 Patient Queue
+          </button>
+          <button
+            onClick={() => setActiveTab("activity")}
+            className={`px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${
+              activeTab === "activity"
+                ? "bg-primary/20 border-2 border-primary text-primary shadow-[0_0_15px_rgba(0,242,255,0.3)]"
+                : "bg-black/40 border border-primary/20 text-slate-400 hover:border-primary/50"
+            }`}
+          >
+            📊 Recent Activity {activityLogs.length > 0 && <span className="ml-2 px-2 py-0.5 bg-primary/30 rounded-full text-xs">{activityLogs.length}</span>}
+          </button>
+        </div>
+
+        {activeTab === "queue" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pb-10">
           {/* Patient Queue */}
           <div className="lg:col-span-2 glass-card p-6 rounded-xl min-h-[500px]">
@@ -231,21 +372,40 @@ const AdminDashboardPage = () => {
             <div className="space-y-3">
               {filteredQueue.map((p) => {
                 const statusStyle = STATUS_COLORS[p.status] || STATUS_COLORS["WAITING"];
+                const isCritical = p.critical_priority;
                 return (
                   <motion.div
                     key={p.patient_id}
                     whileHover={{ scale: 1.01 }}
                     onClick={() => handlePatientClick(p.patient_id)}
-                    className={`bg-black/40 border p-4 rounded-lg cursor-pointer transition-colors flex items-center justify-between ${
+                    className={`border p-4 rounded-lg cursor-pointer transition-all flex items-center justify-between ${
                       selectedPatient?.patient?.id === p.patient_id ? 'border-primary' : 'border-primary/20 hover:border-primary/50'
+                    } ${isCritical 
+                      ? 'bg-red-950/60 ring-2 ring-red-500 border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.4)] animate-[pulse_2s_ease-in-out_infinite]' 
+                      : 'bg-black/40'
                     }`}
                   >
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <h3 className="text-white font-bold">{p.name} <span className="text-slate-400 text-sm font-normal">({p.age} {p.gender})</span></h3>
+                      <div className="flex items-center gap-3 mb-1 flex-wrap">
+                        {isCritical && (
+                          <span className="text-red-500 text-xl animate-bounce" title="Critical Priority">🚨</span>
+                        )}
+                        <h3 className={`font-bold ${isCritical ? 'text-red-300' : 'text-white'}`}>
+                          {p.name} 
+                          {(p.age > 0 || p.gender !== 'Unknown') && (
+                            <span className={`text-sm font-normal ${isCritical ? 'text-red-400/70' : 'text-slate-400'}`}>
+                              ({p.age > 0 ? `${p.age}y` : ''}{p.age > 0 && p.gender !== 'Unknown' ? ' ' : ''}{p.gender !== 'Unknown' ? p.gender : ''})
+                            </span>
+                          )}
+                        </h3>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-widest font-bold ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border} border`}>
                           {(p.status || "WAITING").replace(/_/g, " ")}
                         </span>
+                        {isCritical && (
+                          <span className="text-[10px] px-3 py-1 rounded-full uppercase tracking-widest font-black bg-red-500 text-white border-red-400 border-2 shadow-[0_0_10px_rgba(239,68,68,0.5)]">
+                            🔥 CRITICAL PRIORITY 🔥
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-xs text-slate-500 font-mono tracking-widest">
                         <span>Wait: {p.waiting_minutes}m</span>
@@ -260,7 +420,7 @@ const AdminDashboardPage = () => {
                     <div className="flex items-center gap-6">
                       <div className="text-right hidden sm:block w-16">
                         <p className="text-[10px] text-slate-500 uppercase tracking-widest">Priority</p>
-                        <p className="text-white font-mono font-bold text-lg">{p.priority_score}</p>
+                        <p className={`font-mono font-bold text-lg ${p.critical_priority ? 'text-red-400' : 'text-white'}`}>{p.priority_score}</p>
                       </div>
                       <div className="text-right w-24">
                         <p className={`font-bold ${
@@ -302,7 +462,20 @@ const AdminDashboardPage = () => {
                         {(selectedPatient.patient.status || "WAITING").replace(/_/g, " ")}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-400">{selectedPatient.patient.age} y/o {selectedPatient.patient.gender}</p>
+                    <p className="text-sm text-slate-400">
+                      {selectedPatient.patient.age > 0 ? `${selectedPatient.patient.age} y/o` : 'Age unknown'}
+                      {selectedPatient.patient.gender && selectedPatient.patient.gender !== 'Unknown' ? ` ${selectedPatient.patient.gender}` : ''}
+                    </p>
+                    
+                    {/* Incomplete Info Warning for Critical Emergency */}
+                    {(selectedPatient.patient.age === 0 || selectedPatient.patient.gender === 'Unknown') && 
+                     queue.find(p => p.patient_id === selectedPatient.patient.id)?.critical_priority && (
+                      <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                        <p className="text-xs text-yellow-400 font-bold">⚠️ CRITICAL EMERGENCY - Details Pending</p>
+                        <p className="text-xs text-yellow-500/70">Patient info to be collected during treatment</p>
+                      </div>
+                    )}
+                    
                     {selectedPatient.patient.assigned_doctor && (
                       <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/30 rounded-lg">
                         <p className="text-xs text-slate-400">Assigned to:</p>
@@ -311,6 +484,25 @@ const AdminDashboardPage = () => {
                           <p className="text-xs text-slate-500">{selectedPatient.patient.assigned_specialty}</p>
                         )}
                       </div>
+                    )}
+                    
+                    {/* CRITICAL PRIORITY BUTTON/STATUS - Prominent at top */}
+                    {selectedPatient.patient.status !== "COMPLETED" && (
+                      queue.find(p => p.patient_id === selectedPatient.patient.id)?.critical_priority ? (
+                        <div className="w-full mt-3 py-4 bg-red-600/30 border-2 border-red-500 rounded-xl text-center shadow-[0_0_25px_rgba(239,68,68,0.4)]">
+                          <p className="text-red-300 text-sm font-black uppercase tracking-widest animate-pulse">
+                            🔥 CRITICAL PRIORITY ACTIVE 🔥
+                          </p>
+                          <p className="text-red-400/70 text-xs mt-1">Patient is at top of queue with highest priority</p>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleMarkCritical(selectedPatient.patient.id, selectedPatient.patient.name)}
+                          className="w-full mt-3 py-3 bg-red-600/40 hover:bg-red-600/60 border-2 border-red-500 text-red-300 rounded-xl text-sm font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)] hover:shadow-[0_0_30px_rgba(239,68,68,0.5)]"
+                        >
+                          🚨 MARK CRITICAL PRIORITY 🚨
+                        </button>
+                      )
                     )}
                   </div>
 
@@ -523,6 +715,66 @@ const AdminDashboardPage = () => {
             </AnimatePresence>
           </div>
         </div>
+        )}
+
+        {/* Activity Tab */}
+        {activeTab === "activity" && (
+          <div className="glass-card p-6 rounded-xl min-h-[500px]">
+            <div className="flex items-center justify-between mb-6 border-b border-primary/20 pb-2">
+              <h2 className="text-xl font-bold tracking-widest text-primary">Recent Activity</h2>
+              <span className="text-xs text-slate-500 uppercase tracking-widest">Last {activityLogs.length} events</span>
+            </div>
+            
+            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+              {activityLogs.map((log, idx) => {
+                const actionColors = {
+                  "PATIENT_REGISTERED": "border-green-500/30 bg-green-500/5",
+                  "TRIAGE_COMPLETED": "border-blue-500/30 bg-blue-500/5",
+                  "DOCTOR_ASSIGNED": "border-purple-500/30 bg-purple-500/5",
+                  "TREATMENT_STARTED": "border-cyan-500/30 bg-cyan-500/5",
+                  "TREATMENT_COMPLETED": "border-green-500/30 bg-green-500/5",
+                  "MARKED_CRITICAL": "border-red-500/30 bg-red-500/10",
+                  "PATIENT_DELETED": "border-red-500/30 bg-red-500/5",
+                };
+                return (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.03 }}
+                    className={`p-4 rounded-lg border ${actionColors[log.action] || 'border-primary/20 bg-black/40'}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">{ACTIVITY_ICONS[log.action] || "📝"}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs uppercase tracking-widest text-primary font-bold">
+                            {log.action.replace(/_/g, " ")}
+                          </span>
+                          {log.patient_name && (
+                            <span className="text-white font-medium">— {log.patient_name}</span>
+                          )}
+                          {log.patient_id && (
+                            <span className="text-slate-500 text-xs font-mono">#{log.patient_id}</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-slate-400 mt-1">{log.details}</p>
+                        <p className="text-[10px] text-slate-600 font-mono mt-2">
+                          {new Date(log.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
+              {activityLogs.length === 0 && (
+                <div className="text-center py-20">
+                  <p className="text-slate-500 tracking-widest uppercase text-xs">No activity recorded yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

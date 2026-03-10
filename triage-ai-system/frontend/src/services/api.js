@@ -46,6 +46,7 @@ const triageApiInstance = axios.create({
 
 export const triageAPI = {
   submitIntake: (data) => triageApiInstance.post('/patient-intake', data),
+  submitCriticalEmergency: (data) => triageApiInstance.post('/critical-emergency', data),
   runTriage: (patientId) => triageApiInstance.post(`/triage?patient_id=${patientId}`),
   getPatients: (includeCompleted = false) => triageApiInstance.get(`/patients?include_completed=${includeCompleted}`),
   getPatientDetail: (patientId) => triageApiInstance.get(`/patient/${patientId}`),
@@ -57,7 +58,17 @@ export const triageAPI = {
   startTreatment: (patientId) => triageApiInstance.post('/start-treatment', { patient_id: patientId }),
   completeTreatment: (patientId) => triageApiInstance.post('/complete-treatment', { patient_id: patientId }),
   deletePatient: (patientId) => triageApiInstance.delete(`/patient/${patientId}`),
+  markCritical: (patientId) => triageApiInstance.post('/mark-critical', { patient_id: patientId }),
+  getActivityLogs: (limit = 50) => triageApiInstance.get(`/activity-logs?limit=${limit}`),
   getAnalytics: () => triageApiInstance.get('/analytics'),
+  
+  // Patient Profiles
+  getProfiles: (search = '') => triageApiInstance.get(`/patient-profiles?search=${encodeURIComponent(search)}`),
+  getProfile: (profileId) => triageApiInstance.get(`/patient-profiles/${profileId}`),
+  createProfile: (data) => triageApiInstance.post('/patient-profiles', data),
+  updateProfile: (profileId, data) => triageApiInstance.put(`/patient-profiles/${profileId}`, data),
+  deleteProfile: (profileId) => triageApiInstance.delete(`/patient-profiles/${profileId}`),
+  recordProfileVisit: (profileId) => triageApiInstance.post(`/patient-profiles/${profileId}/record-visit`),
 };
 
 export default api;

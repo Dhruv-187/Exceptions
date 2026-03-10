@@ -8,7 +8,8 @@ from slowapi.util import get_remote_address
 
 from database import (
     patients_collection, vitals_collection, triage_results_collection,
-    get_next_patient_id
+    activity_logs_collection, patient_profiles_collection,
+    get_next_patient_id, get_next_profile_id, log_activity
 )
 from services.feature_validation import validate_symptoms, construct_feature_vector
 from services.gemini_service import extract_symptoms_from_text, generate_explanation
@@ -47,6 +48,24 @@ class PatientIdRequest(BaseModel):
 class DoctorAssignmentRequest(BaseModel):
     patient_id: int
     doctor_id: str = ""  # Doctor ID from DOCTORS list
+
+
+class PatientProfileRequest(BaseModel):
+    name: str
+    age: int
+    gender: str
+    medical_history: List[str] = []
+    # Optional pre-filled notes
+    notes: str = ""
+
+
+class CriticalEmergencyRequest(BaseModel):
+    name: str
+    # Optional additional info if known
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    brief_description: Optional[str] = None
+
 
 # Valid patient statuses (workflow: WAITING → ASSIGNED → IN_TREATMENT → COMPLETED)
 VALID_STATUSES = ["WAITING", "ASSIGNED", "IN_TREATMENT", "COMPLETED"]
@@ -197,7 +216,152 @@ async def register_patient_intake(request: Request, data: PatientIntakeRequest):
     }
     vitals_collection.insert_one(vitals_doc)
 
+    # Log the registration activity
+    log_activity("PATIENT_REGISTERED", patient_id, data.name, f"New patient registered with symptoms: {data.symptoms_text[:50]}...")
+
     return {"status": "success", "patient_id": patient_id, "registration_time": now.isoformat()}
+
+
+@router.post("/critical-emergency")
+@limiter.limit("20/minute")
+async def register_critical_emergency(request: Request, data: CriticalEmergencyRequest):
+    """
+    Quick registration for critical emergency patients.
+    Only requires name - automatically escalates to critical priority
+    and assigns an available doctor immediately.
+    """
+    
+    # Check for duplicate: same name with active status
+    existing_patient = patients_collection.find_one({
+        "name": {"$regex": f"^{data.name}$", "$options": "i"},
+        "status": {"$in": ACTIVE_STATUSES}
+    })
+    
+    if existing_patient:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Patient '{data.name}' already has an active triage request. Use the admin dashboard to mark them as critical instead."
+        )
+    
+    patient_id = get_next_patient_id()
+    now = datetime.utcnow()
+    
+    # Default values for critical emergency
+    age = data.age if data.age else 0  # 0 indicates unknown
+    gender = data.gender if data.gender else "Unknown"
+    symptoms = data.brief_description if data.brief_description else "CRITICAL EMERGENCY - Details pending"
+    
+    # Try to find an available doctor to auto-assign
+    assigned_doctor = None
+    assigned_doctor_ids = [p.get("assigned_doctor_id") for p in patients_collection.find(
+        {"status": {"$in": ["ASSIGNED", "IN_TREATMENT"]}, "assigned_doctor_id": {"$ne": None}}
+    ) if p.get("assigned_doctor_id")]
+    
+    available_doctors = [d for d in DOCTORS if d["id"] not in assigned_doctor_ids]
+    
+    unassigned_from = None
+    if available_doctors:
+        # Use first available doctor
+        assigned_doctor = available_doctors[0]
+    else:
+        # No available doctors - steal from a non-critical ASSIGNED patient
+        non_critical_assigned = list(patients_collection.find({
+            "status": "ASSIGNED",
+            "critical_priority": {"$ne": True},
+            "assigned_doctor_id": {"$ne": None}
+        }).sort("registration_time", -1))  # Most recent first
+        
+        if non_critical_assigned:
+            victim_patient = non_critical_assigned[0]
+            assigned_doctor = next((d for d in DOCTORS if d["id"] == victim_patient.get("assigned_doctor_id")), None)
+            
+            if assigned_doctor:
+                # Unassign doctor from victim patient
+                patients_collection.update_one(
+                    {"patient_id": victim_patient["patient_id"]},
+                    {"$set": {
+                        "status": "WAITING",
+                        "assigned_doctor": None,
+                        "assigned_doctor_id": None,
+                        "assigned_specialty": None,
+                        "assigned_time": None
+                    }}
+                )
+                unassigned_from = victim_patient.get("name", "Unknown")
+                log_activity("DOCTOR_REASSIGNED", victim_patient["patient_id"], unassigned_from, 
+                            f"{assigned_doctor['name']} reassigned to critical emergency patient {data.name}")
+    
+    # Create patient document with critical priority
+    patient_doc = {
+        "patient_id": patient_id,
+        "name": data.name,
+        "age": age,
+        "gender": gender,
+        "symptoms_text": symptoms,
+        "arrival_time": now,
+        "registration_time": now,
+        "status": "ASSIGNED" if assigned_doctor else "WAITING",
+        "triage_time": now,
+        "assigned_time": now if assigned_doctor else None,
+        "assigned_doctor": assigned_doctor["name"] if assigned_doctor else None,
+        "assigned_doctor_id": assigned_doctor["id"] if assigned_doctor else None,
+        "assigned_specialty": assigned_doctor["specialty"] if assigned_doctor else None,
+        "treatment_start_time": None,
+        "completed_time": None,
+        "critical_priority": True,
+        "critical_marked_at": now,
+    }
+    patients_collection.insert_one(patient_doc)
+    
+    # Create minimal vitals document (to be updated later)
+    vitals_doc = {
+        "patient_id": patient_id,
+        "heart_rate": None,
+        "blood_pressure": None,
+        "temperature": None,
+        "spo2": None,
+        "respiratory_rate": None,
+        "recorded_at": now,
+    }
+    vitals_collection.insert_one(vitals_doc)
+    
+    # Create Critical triage result immediately
+    triage_doc = {
+        "patient_id": patient_id,
+        "ml_prediction": 0,  # Critical = 0 in model encoding
+        "triage_level": "Critical",
+        "confidence_score": 100.0,
+        "llm_reasoning": "CRITICAL EMERGENCY - Patient registered via emergency intake. Immediate attention required.",
+        "features_used": {},
+        "shap_values": [],
+        "doctor_override": None,
+        "timestamp": now,
+    }
+    triage_results_collection.insert_one(triage_doc)
+    
+    # Log the critical emergency registration
+    log_activity("CRITICAL_EMERGENCY", patient_id, data.name, 
+                f"Critical emergency patient registered. Auto-assigned to: {assigned_doctor['name'] if assigned_doctor else 'No available doctor'}")
+    
+    response = {
+        "status": "success",
+        "patient_id": patient_id,
+        "name": data.name,
+        "triage_level": "Critical",
+        "critical_priority": True,
+        "registration_time": now.isoformat(),
+        "message": "Critical emergency patient registered and escalated immediately"
+    }
+    
+    if assigned_doctor:
+        response["auto_assigned_doctor"] = assigned_doctor["name"]
+        response["doctor_specialty"] = assigned_doctor["specialty"]
+        if unassigned_from:
+            response["unassigned_from"] = unassigned_from
+    else:
+        response["warning"] = "No doctor available for immediate assignment. Patient is at top of queue."
+    
+    return response
 
 
 @router.post("/triage")
@@ -270,6 +434,10 @@ async def run_triage(request: Request, patient_id: int):
         llm_reasoning=explanation,
     )
 
+    # Log activity for dashboard
+    log_activity("TRIAGE_COMPLETED", patient_id, patient["name"], 
+                 f"Triage level: {ml_result['prediction']} ({ml_result['confidence']}% confidence)")
+
     return {
         "triage_level": ml_result["prediction"],
         "confidence": ml_result["confidence"],
@@ -298,15 +466,18 @@ def get_patients_queue(request: Request, include_completed: bool = False):
 
     for p in patients:
         t_res = triage_results_collection.find_one({"patient_id": p["patient_id"]})
-        t_level = t_res["triage_level"] if t_res else "Unknown"
-        t_conf = t_res["confidence_score"] if t_res else 0.0
+        t_level = t_res.get("triage_level", "Unknown") if t_res else "Unknown"
+        t_conf = t_res.get("confidence_score", t_res.get("confidence", 0.0)) if t_res else 0.0
 
         waiting_minutes = (now - p["arrival_time"]).total_seconds() / 60.0
         triage_weight = triage_weights.get(t_level, 0)
         status_weight = status_weights.get(p.get("status", "Waiting"), 0)
         
-        # Priority: triage level * 10 + status weight * 5 + waiting time
-        priority_score = (triage_weight * 10) + (status_weight * 5) + waiting_minutes
+        # Critical priority patients get a huge boost (1000 points)
+        critical_boost = 1000 if p.get("critical_priority") else 0
+        
+        # Priority: critical boost + triage level * 10 + status weight * 5 + waiting time
+        priority_score = critical_boost + (triage_weight * 10) + (status_weight * 5) + waiting_minutes
 
         queue.append({
             "patient_id": p["patient_id"],
@@ -316,6 +487,7 @@ def get_patients_queue(request: Request, include_completed: bool = False):
             "triage_level": t_level,
             "confidence": t_conf,
             "status": p.get("status", "WAITING"),
+            "critical_priority": p.get("critical_priority", False),
             "assigned_doctor": p.get("assigned_doctor"),
             "assigned_specialty": p.get("assigned_specialty"),
             "arrival_time": p["arrival_time"].isoformat(),
@@ -372,13 +544,14 @@ def get_patient_detail(request: Request, patient_id: int):
     }
 
     if t_res:
+        # Handle both old and new field names for backwards compatibility
         result["triage"] = {
-            "ml_prediction": t_res["ml_prediction"],
-            "confidence_score": t_res["confidence_score"],
-            "llm_reasoning": t_res.get("llm_reasoning"),
-            "triage_level": t_res["triage_level"],
+            "ml_prediction": t_res.get("ml_prediction", 0),
+            "confidence_score": t_res.get("confidence_score", t_res.get("confidence", 0)),
+            "llm_reasoning": t_res.get("llm_reasoning", t_res.get("explanation", "Assessment pending")),
+            "triage_level": t_res.get("triage_level", "Unknown"),
             "doctor_override": t_res.get("doctor_override"),
-            "timestamp": t_res["timestamp"].isoformat(),
+            "timestamp": (t_res.get("timestamp") or t_res.get("triaged_at", datetime.utcnow())).isoformat() if isinstance(t_res.get("timestamp") or t_res.get("triaged_at"), datetime) else None,
         }
     return result
 
@@ -511,6 +684,10 @@ def assign_doctor(request: Request, data: DoctorAssignmentRequest):
         }}
     )
     
+    # Log activity
+    log_activity("DOCTOR_ASSIGNED", data.patient_id, patient.get("name"), 
+                 f"Assigned to {doctor['name']} ({doctor['specialty']})")
+    
     return {
         "status": "success",
         "patient_id": data.patient_id,
@@ -543,6 +720,10 @@ def start_treatment(request: Request, data: PatientIdRequest):
         }}
     )
     
+    # Log activity
+    log_activity("TREATMENT_STARTED", data.patient_id, patient.get("name"), 
+                 f"Treatment started with {patient.get('assigned_doctor', 'Unassigned')}")
+    
     return {
         "status": "success",
         "patient_id": data.patient_id,
@@ -572,6 +753,10 @@ def complete_treatment(request: Request, data: PatientIdRequest):
             "completed_time": now
         }}
     )
+    
+    # Log activity
+    log_activity("TREATMENT_COMPLETED", data.patient_id, patient.get("name"), 
+                 f"Treatment completed by {patient.get('assigned_doctor', 'Unassigned')}")
     
     return {
         "status": "success",
@@ -633,13 +818,296 @@ def delete_patient(request: Request, patient_id: int):
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     
+    patient_name = patient.get("name", "Unknown")
+    
     # Delete from patients collection
     patients_collection.delete_one({"patient_id": patient_id})
     
     # Delete associated triage results
     triage_results_collection.delete_one({"patient_id": patient_id})
     
+    # Log the activity
+    log_activity("PATIENT_DELETED", patient_id, patient_name, f"Patient record deleted")
+    
     return {
         "status": "success",
         "message": f"Patient {patient_id} and associated records deleted successfully"
     }
+
+
+@router.post("/mark-critical")
+def mark_critical(request: Request, data: PatientIdRequest):
+    """Marks a patient as critical priority - moves them to top of queue and auto-assigns doctor."""
+    patient = patients_collection.find_one({"patient_id": data.patient_id})
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    if patient.get("status") == "COMPLETED":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot mark completed patients as critical"
+        )
+    
+    now = datetime.utcnow()
+    patient_name = patient.get("name", "Unknown")
+    reassigned_doctor = None
+    unassigned_from = None
+    
+    # If patient doesn't have a doctor, try to get one
+    if not patient.get("assigned_doctor_id"):
+        # First, try to find an available doctor
+        assigned_doctor_ids = [p.get("assigned_doctor_id") for p in patients_collection.find(
+            {"status": {"$in": ["ASSIGNED", "IN_TREATMENT"]}, "assigned_doctor_id": {"$ne": None}}
+        ) if p.get("assigned_doctor_id")]
+        
+        available_doctors = [d for d in DOCTORS if d["id"] not in assigned_doctor_ids]
+        
+        if available_doctors:
+            # Use first available doctor
+            reassigned_doctor = available_doctors[0]
+        else:
+            # No available doctors - steal from a non-critical patient
+            # Find patients who are ASSIGNED (not yet in treatment) and NOT critical
+            non_critical_assigned = list(patients_collection.find({
+                "status": "ASSIGNED",
+                "critical_priority": {"$ne": True},
+                "assigned_doctor_id": {"$ne": None}
+            }).sort("registration_time", -1))  # Most recent first (least urgent)
+            
+            if non_critical_assigned:
+                # Unassign the doctor from the least urgent patient
+                victim_patient = non_critical_assigned[0]
+                reassigned_doctor = next((d for d in DOCTORS if d["id"] == victim_patient.get("assigned_doctor_id")), None)
+                
+                if reassigned_doctor:
+                    # Unassign doctor from victim patient
+                    patients_collection.update_one(
+                        {"patient_id": victim_patient["patient_id"]},
+                        {"$set": {
+                            "status": "WAITING",
+                            "assigned_doctor": None,
+                            "assigned_doctor_id": None,
+                            "assigned_specialty": None,
+                            "assigned_time": None
+                        }}
+                    )
+                    unassigned_from = victim_patient.get("name", "Unknown")
+                    log_activity("DOCTOR_REASSIGNED", victim_patient["patient_id"], unassigned_from, 
+                                f"{reassigned_doctor['name']} reassigned to critical patient {patient_name}")
+        
+        # Assign doctor to critical patient if we found one
+        if reassigned_doctor:
+            patients_collection.update_one(
+                {"patient_id": data.patient_id},
+                {"$set": {
+                    "critical_priority": True,
+                    "critical_marked_at": now,
+                    "status": "ASSIGNED",
+                    "assigned_doctor": reassigned_doctor["name"],
+                    "assigned_doctor_id": reassigned_doctor["id"],
+                    "assigned_specialty": reassigned_doctor["specialty"],
+                    "assigned_time": now
+                }}
+            )
+            log_activity("DOCTOR_ASSIGNED", data.patient_id, patient_name, 
+                        f"Critical patient auto-assigned to {reassigned_doctor['name']}")
+        else:
+            # No doctor available at all - just mark as critical
+            patients_collection.update_one(
+                {"patient_id": data.patient_id},
+                {"$set": {
+                    "critical_priority": True,
+                    "critical_marked_at": now
+                }}
+            )
+    else:
+        # Patient already has a doctor - just mark as critical
+        patients_collection.update_one(
+            {"patient_id": data.patient_id},
+            {"$set": {
+                "critical_priority": True,
+                "critical_marked_at": now
+            }}
+        )
+    
+    # Also update triage to Critical if not already
+    triage_results_collection.update_one(
+        {"patient_id": data.patient_id},
+        {"$set": {"triage_level": "Critical", "doctor_override": "YES"}}
+    )
+    
+    log_activity("MARKED_CRITICAL", data.patient_id, patient_name, "Patient marked as critical priority")
+    
+    response = {
+        "status": "success",
+        "patient_id": data.patient_id,
+        "message": f"Patient marked as critical priority and moved to top of queue",
+        "critical_at": now.isoformat()
+    }
+    
+    if reassigned_doctor:
+        response["auto_assigned_doctor"] = reassigned_doctor["name"]
+        response["doctor_specialty"] = reassigned_doctor["specialty"]
+        if unassigned_from:
+            response["unassigned_from"] = unassigned_from
+    
+    return response
+
+
+@router.get("/activity-logs")
+def get_activity_logs(request: Request, limit: int = 50):
+    """Returns recent activity logs for the admin dashboard."""
+    logs = list(activity_logs_collection.find(
+        {},
+        {"_id": 0}
+    ).sort("timestamp", -1).limit(limit))
+    
+    # Convert datetime objects to ISO strings
+    for log in logs:
+        if log.get("timestamp"):
+            log["timestamp"] = log["timestamp"].isoformat()
+    
+    return {"logs": logs}
+
+
+# ------- Patient Profile Endpoints -------
+
+@router.get("/patient-profiles")
+def get_patient_profiles(request: Request, search: str = ""):
+    """Returns all saved patient profiles, optionally filtered by name search."""
+    query = {}
+    if search:
+        query["name"] = {"$regex": search, "$options": "i"}
+    
+    profiles = list(patient_profiles_collection.find(
+        query,
+        {"_id": 0}
+    ).sort("name", 1))
+    
+    # Convert datetime to ISO strings
+    for profile in profiles:
+        if profile.get("created_at"):
+            profile["created_at"] = profile["created_at"].isoformat()
+        if profile.get("updated_at"):
+            profile["updated_at"] = profile["updated_at"].isoformat()
+        if profile.get("last_visit"):
+            profile["last_visit"] = profile["last_visit"].isoformat()
+    
+    return {"profiles": profiles}
+
+
+@router.get("/patient-profiles/{profile_id}")
+def get_patient_profile(request: Request, profile_id: int):
+    """Returns a specific patient profile by ID."""
+    profile = patient_profiles_collection.find_one(
+        {"profile_id": profile_id},
+        {"_id": 0}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    
+    # Convert datetime to ISO strings
+    if profile.get("created_at"):
+        profile["created_at"] = profile["created_at"].isoformat()
+    if profile.get("updated_at"):
+        profile["updated_at"] = profile["updated_at"].isoformat()
+    if profile.get("last_visit"):
+        profile["last_visit"] = profile["last_visit"].isoformat()
+    
+    return profile
+
+
+@router.post("/patient-profiles")
+def create_patient_profile(request: Request, data: PatientProfileRequest):
+    """Creates a new patient profile for returning patients."""
+    now = datetime.utcnow()
+    profile_id = get_next_profile_id()
+    
+    profile_doc = {
+        "profile_id": profile_id,
+        "name": data.name,
+        "age": data.age,
+        "gender": data.gender,
+        "medical_history": data.medical_history,
+        "notes": data.notes,
+        "created_at": now,
+        "updated_at": now,
+        "last_visit": now,
+        "visit_count": 0
+    }
+    
+    patient_profiles_collection.insert_one(profile_doc)
+    
+    log_activity("PROFILE_CREATED", None, data.name, f"Patient profile created for {data.name}")
+    
+    return {
+        "status": "success",
+        "profile_id": profile_id,
+        "message": f"Profile created for {data.name}"
+    }
+
+
+@router.put("/patient-profiles/{profile_id}")
+def update_patient_profile(request: Request, profile_id: int, data: PatientProfileRequest):
+    """Updates an existing patient profile."""
+    profile = patient_profiles_collection.find_one({"profile_id": profile_id})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    
+    now = datetime.utcnow()
+    patient_profiles_collection.update_one(
+        {"profile_id": profile_id},
+        {"$set": {
+            "name": data.name,
+            "age": data.age,
+            "gender": data.gender,
+            "medical_history": data.medical_history,
+            "notes": data.notes,
+            "updated_at": now
+        }}
+    )
+    
+    log_activity("PROFILE_UPDATED", None, data.name, f"Patient profile updated")
+    
+    return {
+        "status": "success",
+        "profile_id": profile_id,
+        "message": f"Profile updated for {data.name}"
+    }
+
+
+@router.delete("/patient-profiles/{profile_id}")
+def delete_patient_profile(request: Request, profile_id: int):
+    """Deletes a patient profile."""
+    profile = patient_profiles_collection.find_one({"profile_id": profile_id})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    
+    patient_name = profile.get("name", "Unknown")
+    patient_profiles_collection.delete_one({"profile_id": profile_id})
+    
+    log_activity("PROFILE_DELETED", None, patient_name, f"Patient profile deleted")
+    
+    return {
+        "status": "success",
+        "message": f"Profile deleted for {patient_name}"
+    }
+
+
+@router.post("/patient-profiles/{profile_id}/record-visit")
+def record_profile_visit(request: Request, profile_id: int):
+    """Records a visit for the profile (increments visit count and updates last_visit)."""
+    profile = patient_profiles_collection.find_one({"profile_id": profile_id})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    
+    now = datetime.utcnow()
+    patient_profiles_collection.update_one(
+        {"profile_id": profile_id},
+        {
+            "$set": {"last_visit": now},
+            "$inc": {"visit_count": 1}
+        }
+    )
+    
+    return {"status": "success", "message": "Visit recorded"}
