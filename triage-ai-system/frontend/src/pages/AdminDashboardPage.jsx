@@ -94,7 +94,7 @@ const AdminDashboardPage = () => {
     fetchData();
     const timer = setInterval(fetchData, 5000); // 5s refresh
     return () => clearInterval(timer);
-  }, []);
+  }, [statusFilter]);
 
   const handlePatientClick = async (id) => {
     try {
@@ -161,8 +161,8 @@ const AdminDashboardPage = () => {
               <h2 className="text-xl font-bold tracking-widest text-primary">Active Triage Queue</h2>
               
               {/* Status Filter */}
-              <div className="flex gap-2">
-                {["all", "Waiting", "In Treatment", "Discharged"].map((filter) => (
+              <div className="flex gap-2 flex-wrap">
+                {["all", "WAITING", "ASSIGNED", "IN_TREATMENT", "COMPLETED"].map((filter) => (
                   <button
                     key={filter}
                     onClick={() => setStatusFilter(filter)}
@@ -172,7 +172,7 @@ const AdminDashboardPage = () => {
                         : "border-primary/20 text-slate-400 hover:border-primary/50"
                     }`}
                   >
-                    {filter === "all" ? "All" : filter}
+                    {filter === "all" ? "All" : filter.replace(/_/g, " ")}
                   </button>
                 ))}
               </div>
@@ -180,7 +180,7 @@ const AdminDashboardPage = () => {
             
             <div className="space-y-3">
               {filteredQueue.map((p) => {
-                const statusStyle = STATUS_COLORS[p.status] || STATUS_COLORS["Waiting"];
+                const statusStyle = STATUS_COLORS[p.status] || STATUS_COLORS["WAITING"];
                 return (
                   <motion.div
                     key={p.patient_id}
@@ -194,11 +194,12 @@ const AdminDashboardPage = () => {
                       <div className="flex items-center gap-3 mb-1">
                         <h3 className="text-white font-bold">{p.name} <span className="text-slate-400 text-sm font-normal">({p.age} {p.gender})</span></h3>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-widest font-bold ${statusStyle.bg} ${statusStyle.text} ${statusStyle.border} border`}>
-                          {p.status || "Waiting"}
+                          {(p.status || "WAITING").replace(/_/g, " ")}
                         </span>
                       </div>
                       <div className="flex items-center gap-4 text-xs text-slate-500 font-mono tracking-widest">
                         <span>Wait: {p.waiting_minutes}m</span>
+                        {p.assigned_doctor && <span className="text-purple-400">Dr: {p.assigned_doctor}</span>}
                         {p.registration_time && <span>Reg: {new Date(p.registration_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>}
                       </div>
                     </div>
@@ -238,36 +239,74 @@ const AdminDashboardPage = () => {
                     <div className="flex items-center justify-between mb-1">
                       <h2 className="text-2xl font-bold text-white">{selectedPatient.patient.name}</h2>
                       <span className={`text-xs px-3 py-1 rounded-full uppercase tracking-widest font-bold ${
-                        STATUS_COLORS[selectedPatient.patient.status]?.bg || STATUS_COLORS["Waiting"].bg
+                        STATUS_COLORS[selectedPatient.patient.status]?.bg || STATUS_COLORS["WAITING"].bg
                       } ${
-                        STATUS_COLORS[selectedPatient.patient.status]?.text || STATUS_COLORS["Waiting"].text
+                        STATUS_COLORS[selectedPatient.patient.status]?.text || STATUS_COLORS["WAITING"].text
                       } ${
-                        STATUS_COLORS[selectedPatient.patient.status]?.border || STATUS_COLORS["Waiting"].border
+                        STATUS_COLORS[selectedPatient.patient.status]?.border || STATUS_COLORS["WAITING"].border
                       } border`}>
-                        {selectedPatient.patient.status || "Waiting"}
+                        {(selectedPatient.patient.status || "WAITING").replace(/_/g, " ")}
                       </span>
                     </div>
                     <p className="text-sm text-slate-400">{selectedPatient.patient.age} y/o {selectedPatient.patient.gender}</p>
+                    {selectedPatient.patient.assigned_doctor && (
+                      <p className="text-sm text-purple-400 mt-1">Assigned to: {selectedPatient.patient.assigned_doctor}</p>
+                    )}
                   </div>
 
-                  {/* Status Update Buttons */}
+                  {/* Workflow Actions */}
                   <div>
-                    <h3 className="text-xs uppercase tracking-widest text-primary mb-2">Update Status</h3>
-                    <div className="flex gap-2">
-                      {["Waiting", "In Treatment", "Discharged"].map((status) => (
+                    <h3 className="text-xs uppercase tracking-widest text-primary mb-3">Workflow Actions</h3>
+                    <div className="space-y-3">
+                      {/* Assign Doctor - Only for WAITING status */}
+                      {selectedPatient.patient.status === "WAITING" && (
+                        <div className="bg-black/40 p-3 rounded-lg border border-purple-500/20">
+                          <p className="text-[10px] uppercase tracking-widest text-purple-400 mb-2">Assign Doctor</p>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Doctor name..."
+                              value={doctorName}
+                              onChange={(e) => setDoctorName(e.target.value)}
+                              className="flex-1 bg-black/50 border border-primary/20 rounded-lg px-3 py-2 text-white text-sm focus:border-primary focus:outline-none"
+                            />
+                            <button
+                              onClick={() => handleAssignDoctor(selectedPatient.patient.id)}
+                              className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+                            >
+                              Assign
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Start Treatment - For WAITING or ASSIGNED status */}
+                      {(selectedPatient.patient.status === "WAITING" || selectedPatient.patient.status === "ASSIGNED") && (
                         <button
-                          key={status}
-                          onClick={() => handleStatusChange(selectedPatient.patient.id, status)}
-                          disabled={selectedPatient.patient.status === status}
-                          className={`flex-1 text-[10px] uppercase tracking-widest py-2 px-2 rounded-lg border transition-all ${
-                            selectedPatient.patient.status === status
-                              ? `${STATUS_COLORS[status].bg} ${STATUS_COLORS[status].border} ${STATUS_COLORS[status].text} cursor-default`
-                              : "border-primary/20 text-slate-400 hover:border-primary/50 hover:text-white"
-                          }`}
+                          onClick={() => handleStartTreatment(selectedPatient.patient.id)}
+                          className="w-full py-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 text-blue-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
                         >
-                          {status}
+                          Start Treatment
                         </button>
-                      ))}
+                      )}
+                      
+                      {/* Complete Treatment - Only for IN_TREATMENT status */}
+                      {selectedPatient.patient.status === "IN_TREATMENT" && (
+                        <button
+                          onClick={() => handleCompleteTreatment(selectedPatient.patient.id)}
+                          className="w-full py-3 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 text-green-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+                        >
+                          Complete Treatment
+                        </button>
+                      )}
+                      
+                      {/* COMPLETED status message */}
+                      {selectedPatient.patient.status === "COMPLETED" && (
+                        <div className="text-center py-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                          <p className="text-green-400 text-xs uppercase tracking-widest font-bold">Visit Completed</p>
+                          <p className="text-slate-500 text-[10px] mt-1">Patient can submit new triage if needed</p>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -284,12 +323,16 @@ const AdminDashboardPage = () => {
                         <span className="text-white font-mono">{selectedPatient.patient.triage_time ? new Date(selectedPatient.patient.triage_time).toLocaleTimeString() : '-'}</span>
                       </div>
                       <div className="flex justify-between text-slate-400">
+                        <span>Doctor Assigned:</span>
+                        <span className="text-white font-mono">{selectedPatient.patient.assigned_time ? new Date(selectedPatient.patient.assigned_time).toLocaleTimeString() : '-'}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
                         <span>Treatment Started:</span>
                         <span className="text-white font-mono">{selectedPatient.patient.treatment_start_time ? new Date(selectedPatient.patient.treatment_start_time).toLocaleTimeString() : '-'}</span>
                       </div>
                       <div className="flex justify-between text-slate-400">
-                        <span>Discharged:</span>
-                        <span className="text-white font-mono">{selectedPatient.patient.discharge_time ? new Date(selectedPatient.patient.discharge_time).toLocaleTimeString() : '-'}</span>
+                        <span>Completed:</span>
+                        <span className="text-white font-mono">{selectedPatient.patient.completed_time ? new Date(selectedPatient.patient.completed_time).toLocaleTimeString() : '-'}</span>
                       </div>
                     </div>
                   </div>
