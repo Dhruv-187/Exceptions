@@ -3,6 +3,7 @@ node_modules/
 .vite/
 dist/
 build/
+package-lock.json
 
 # Python
 __pycache__/
