@@ -69,8 +69,13 @@ const LoginPage = () => {
             transition={{ delay: 0.2 }}
             className="text-center mb-10"
           >
-            <h1 className="text-3xl font-bold mb-3 tracking-tight">Access Dashboard</h1>
-            <p className="text-slate-400 text-sm">Enter your credentials to continue your journey</p>
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/30">
+                <span className="material-symbols-outlined text-primary text-3xl">person</span>
+              </div>
+            </div>
+            <h1 className="text-3xl font-bold mb-3 tracking-tight">Patient Login</h1>
+            <p className="text-slate-400 text-sm">Enter your credentials to access the patient portal</p>
           </motion.div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -143,7 +148,7 @@ const LoginPage = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="mt-8 text-center"
+            className="mt-8 text-center space-y-4"
           >
             <p className="text-slate-400 text-sm">
               Don't have an account?{' '}
@@ -151,6 +156,14 @@ const LoginPage = () => {
                 Sign up
               </Link>
             </p>
+            <div className="gradient-line"></div>
+            <Link
+              to="/admin/login"
+              className="inline-flex items-center gap-2 text-amber-400 hover:text-amber-300 text-sm font-medium transition-colors"
+            >
+              <span className="material-symbols-outlined text-base">stethoscope</span>
+              <span>Doctor / Admin Login</span>
+            </Link>
           </motion.div>
         </GlassCard>
 
@@ -158,11 +171,17 @@ const LoginPage = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="mt-8 flex justify-center gap-6 text-xs text-slate-500"
+          className="mt-8 flex flex-col items-center gap-4"
         >
-          <a href="#" className="hover:text-primary transition-colors">Privacy Policy</a>
-          <a href="#" className="hover:text-primary transition-colors">Terms of Service</a>
-          <a href="#" className="hover:text-primary transition-colors">Contact Support</a>
+          <Link to="/" className="flex items-center gap-2 text-slate-500 hover:text-primary transition-colors text-sm">
+            <span className="material-symbols-outlined text-base">arrow_back</span>
+            <span>Back to Home</span>
+          </Link>
+          <div className="flex justify-center gap-6 text-xs text-slate-500">
+            <a href="#" className="hover:text-primary transition-colors">Privacy Policy</a>
+            <a href="#" className="hover:text-primary transition-colors">Terms of Service</a>
+            <a href="#" className="hover:text-primary transition-colors">Contact Support</a>
+          </div>
         </motion.div>
       </div>
     </main>

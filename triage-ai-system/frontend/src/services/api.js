@@ -47,9 +47,13 @@ const triageApiInstance = axios.create({
 export const triageAPI = {
   submitIntake: (data) => triageApiInstance.post('/patient-intake', data),
   runTriage: (patientId) => triageApiInstance.post(`/triage?patient_id=${patientId}`),
-  getPatients: () => triageApiInstance.get('/patients'),
+  getPatients: (includeCompleted = false) => triageApiInstance.get(`/patients?include_completed=${includeCompleted}`),
   getPatientDetail: (patientId) => triageApiInstance.get(`/patient/${patientId}`),
   overrideTriage: (data) => triageApiInstance.post('/override-triage', data),
+  updateStatus: (data) => triageApiInstance.post('/update-status', data),
+  assignDoctor: (data) => triageApiInstance.post('/assign-doctor', data),
+  startTreatment: (patientId) => triageApiInstance.post('/start-treatment', { patient_id: patientId }),
+  completeTreatment: (patientId) => triageApiInstance.post('/complete-treatment', { patient_id: patientId }),
   getAnalytics: () => triageApiInstance.get('/analytics'),
 };
 

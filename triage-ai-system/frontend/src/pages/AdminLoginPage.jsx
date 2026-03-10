@@ -119,14 +119,19 @@ const AdminLoginPage = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="mt-8 text-center"
+            className="mt-8 text-center space-y-4"
           >
             <p className="text-slate-400 text-sm">
-              Not an admin?{' '}
+              Not a doctor?{' '}
               <Link to="/login" className="text-primary font-bold hover:underline decoration-primary/30 underline-offset-4 ml-1">
-                User Login
+                Patient Login
               </Link>
             </p>
+            <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-amber-500/30 to-transparent"></div>
+            <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-amber-400 transition-colors text-sm">
+              <span className="material-symbols-outlined text-base">arrow_back</span>
+              <span>Back to Home</span>
+            </Link>
           </motion.div>
         </GlassCard>
       </div>

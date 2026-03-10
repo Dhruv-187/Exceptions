@@ -5,6 +5,7 @@ import ParticleBackground from './components/ParticleBackground';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminProtectedRoute from './components/AdminProtectedRoute';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import VerifyOTPPage from './pages/VerifyOTPPage';
@@ -28,7 +29,7 @@ const AppRoutes = () => {
     <div className="relative z-10 flex flex-col min-h-screen">
       <Navbar />
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<PublicRoute><LandingPage /></PublicRoute>} />
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
         <Route path="/verify-otp" element={<VerifyOTPPage />} />
@@ -37,7 +38,7 @@ const AppRoutes = () => {
         <Route path="/dashboard" element={<ProtectedRoute><PatientIntakePage /></ProtectedRoute>} />
         <Route path="/admin/login" element={<PublicRoute><AdminLoginPage /></PublicRoute>} />
         <Route path="/admin/dashboard" element={<AdminProtectedRoute><AdminDashboardPage /></AdminProtectedRoute>} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
