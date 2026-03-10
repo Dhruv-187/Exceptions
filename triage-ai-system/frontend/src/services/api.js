@@ -39,4 +39,18 @@ export const authAPI = {
   getMe: () => api.get('/me'),
 };
 
+const triageApiInstance = axios.create({
+  baseURL: 'http://localhost:8000/api',
+  headers: { 'Content-Type': 'application/json' }
+});
+
+export const triageAPI = {
+  submitIntake: (data) => triageApiInstance.post('/patient-intake', data),
+  runTriage: (patientId) => triageApiInstance.post(`/triage?patient_id=${patientId}`),
+  getPatients: () => triageApiInstance.get('/patients'),
+  getPatientDetail: (patientId) => triageApiInstance.get(`/patient/${patientId}`),
+  overrideTriage: (data) => triageApiInstance.post('/override-triage', data),
+  getAnalytics: () => triageApiInstance.get('/analytics'),
+};
+
 export default api;

@@ -10,7 +10,7 @@ import RegisterPage from './pages/RegisterPage';
 import VerifyOTPPage from './pages/VerifyOTPPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
-import DashboardPage from './pages/DashboardPage';
+import PatientIntakePage from './pages/PatientIntakePage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 
@@ -34,7 +34,7 @@ const AppRoutes = () => {
         <Route path="/verify-otp" element={<VerifyOTPPage />} />
         <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute><PatientIntakePage /></ProtectedRoute>} />
         <Route path="/admin/login" element={<PublicRoute><AdminLoginPage /></PublicRoute>} />
         <Route path="/admin/dashboard" element={<AdminProtectedRoute><AdminDashboardPage /></AdminProtectedRoute>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
