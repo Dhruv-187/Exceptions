@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+scikit-learn
+pandas
+google-generativeai
+sqlalchemy
+pydantic
+shap
+slowapi
+pytest
+httpx
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+email-validator

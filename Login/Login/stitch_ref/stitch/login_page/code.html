@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SaaS Premium - Futuristic Login</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#00f2ff",
+                        "background-light": "#f5f8f8",
+                        "background-dark": "#070c0c",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .glass-card {
+            background: rgba(15, 34, 35, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 242, 255, 0.1);
+        }
+        .neon-glow {
+            box-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+        }
+        .neon-glow:hover {
+            box-shadow: 0 0 25px rgba(0, 242, 255, 0.6);
+        }
+        .floating-label-input:focus-within label,
+        .floating-label-input input:not(:placeholder-shown) + label {
+            transform: translateY(-1.5rem) scale(0.85);
+            color: #00f2ff;
+        }
+        .bg-animated {
+            background: radial-gradient(circle at 50% 50%, #112d2e 0%, #070c0c 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .particle {
+            position: absolute;
+            background: #00f2ff;
+            border-radius: 50%;
+            opacity: 0.2;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="font-display bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex flex-col">
+<!-- Background Decoration -->
+<div class="fixed inset-0 z-0 bg-animated">
+<div class="particle w-1 h-1 top-1/4 left-1/4"></div>
+<div class="particle w-2 h-2 top-1/2 left-1/3"></div>
+<div class="particle w-1.5 h-1.5 top-3/4 left-2/3"></div>
+<div class="particle w-1 h-1 top-1/3 left-3/4"></div>
+<div class="particle w-2 h-2 top-10 right-10"></div>
+<!-- Abstract gradient overlays -->
+<div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 rounded-full blur-[120px]"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-[120px]"></div>
+</div>
+<div class="relative z-10 flex flex-col min-h-screen">
+<!-- Top Nav -->
+<header class="flex items-center justify-between px-6 py-6 lg:px-12">
+<div class="flex items-center gap-3">
+<div class="size-10 bg-primary/20 rounded-lg flex items-center justify-center border border-primary/30">
+<svg class="text-primary w-6 h-6" fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M42.4379 44C42.4379 44 36.0744 33.9038 41.1692 24C46.8624 12.9336 42.2078 4 42.2078 4L7.01134 4C7.01134 4 11.6577 12.932 5.96912 23.9969C0.876273 33.9029 7.27094 44 7.27094 44L42.4379 44Z" fill="currentColor"></path>
+</svg>
+</div>
+<h2 class="text-xl font-bold tracking-tight">SaaS<span class="text-primary">Premium</span></h2>
+</div>
+<div class="hidden md:flex gap-8 text-sm font-medium text-slate-400">
+<a class="hover:text-primary transition-colors" href="#">Product</a>
+<a class="hover:text-primary transition-colors" href="#">Features</a>
+<a class="hover:text-primary transition-colors" href="#">Pricing</a>
+</div>
+<button class="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 px-5 py-2 rounded-lg text-sm font-bold transition-all">
+                Documentation
+            </button>
+</header>
+<!-- Main Content -->
+<main class="flex-1 flex items-center justify-center p-6">
+<div class="w-full max-w-[450px]">
+<!-- Login Card -->
+<div class="glass-card rounded-xl p-8 lg:p-10 shadow-2xl relative overflow-hidden">
+<!-- Subtle inner glow -->
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
+<div class="text-center mb-10">
+<h1 class="text-3xl font-bold mb-3 tracking-tight">Access Dashboard</h1>
+<p class="text-slate-400 text-sm">Enter your credentials to continue your journey</p>
+</div>
+<form class="space-y-6">
+<!-- Email Input -->
+<div class="relative floating-label-input group">
+<input class="peer w-full bg-slate-800/40 border border-slate-700/50 rounded-lg px-4 py-4 text-slate-100 placeholder-transparent focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all" id="email" placeholder=" " type="email"/>
+<label class="absolute left-4 top-4 text-slate-500 transition-all pointer-events-none origin-left" for="email">
+                                Email Address
+                            </label>
+<span class="material-symbols-outlined absolute right-4 top-4 text-slate-500 group-focus-within:text-primary transition-colors">
+                                alternate_email
+                            </span>
+</div>
+<!-- Password Input -->
+<div class="relative floating-label-input group">
+<input class="peer w-full bg-slate-800/40 border border-slate-700/50 rounded-lg px-4 py-4 text-slate-100 placeholder-transparent focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all" id="password" placeholder=" " type="password"/>
+<label class="absolute left-4 top-4 text-slate-500 transition-all pointer-events-none origin-left" for="password">
+                                Password
+                            </label>
+<button class="absolute right-4 top-4 text-slate-500 group-focus-within:text-primary transition-colors" type="button">
+<span class="material-symbols-outlined">visibility</span>
+</button>
+</div>
+<div class="flex items-center justify-between text-xs sm:text-sm">
+<label class="flex items-center gap-2 cursor-pointer">
+<input class="rounded border-slate-700 bg-slate-800/40 text-primary focus:ring-primary/30" type="checkbox"/>
+<span class="text-slate-400">Remember me</span>
+</label>
+<a class="text-primary hover:underline font-medium" href="#">Forgot password?</a>
+</div>
+<!-- Login Button -->
+<button class="w-full bg-primary text-background-dark font-bold py-4 rounded-lg neon-glow transform hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200">
+                            Log In
+                        </button>
+<div class="relative py-4 flex items-center">
+<div class="flex-grow border-t border-slate-700/50"></div>
+<span class="flex-shrink mx-4 text-slate-500 text-xs uppercase tracking-widest">Or continue with</span>
+<div class="flex-grow border-t border-slate-700/50"></div>
+</div>
+<!-- Google Login -->
+<button class="w-full flex items-center justify-center gap-3 bg-white/5 border border-slate-700/50 hover:bg-white/10 text-slate-100 font-medium py-3 rounded-lg transition-all">
+<svg class="w-5 h-5" viewbox="0 0 24 24">
+<path d="M12 5.04c1.74 0 3.12.66 3.91 1.41l2.91-2.91C17.06 1.95 14.76 1 12 1 7.35 1 3.41 3.65 1.5 7.5l3.41 2.64C5.75 7.31 8.61 5.04 12 5.04z" fill="#EA4335"></path>
+<path d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.28 1.48-1.13 2.74-2.4 3.58l3.71 2.88c2.16-1.99 3.41-4.92 3.41-8.7z" fill="#4285F4"></path>
+<path d="M5.91 14.86c-.24-.72-.38-1.5-.38-2.31s.14-1.59.38-2.31L2.5 7.6C1.56 9.41 1 11.41 1 13.5s.56 4.09 1.5 5.9l3.41-2.54z" fill="#FBBC05"></path>
+<path d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.71-2.88c-1.07.72-2.44 1.15-4.25 1.15-3.39 0-6.25-2.27-7.27-5.32L1.23 15.6C3.14 19.35 7.08 22 12 23z" fill="#34A853"></path>
+</svg>
+<span>Google Account</span>
+</button>
+</form>
+<div class="mt-8 text-center">
+<p class="text-slate-400 text-sm">
+                            Don't have an account? 
+                            <a class="text-primary font-bold hover:underline ml-1" href="#">Sign up</a>
+</p>
+</div>
+</div>
+<!-- Footer Links -->
+<div class="mt-8 flex justify-center gap-6 text-xs text-slate-500">
+<a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="hover:text-primary transition-colors" href="#">Terms of Service</a>
+<a class="hover:text-primary transition-colors" href="#">Contact Support</a>
+</div>
+</div>
+</main>
+<!-- Decorative Side Images/Elements (Visible on large screens) -->
+<div class="hidden lg:block fixed bottom-12 right-12 opacity-40">
+<div class="flex flex-col gap-4">
+<div class="h-32 w-1 bg-gradient-to-b from-primary to-transparent rounded-full ml-auto"></div>
+<div class="text-primary font-mono text-xs tracking-tighter text-right">
+                    SYS_STATUS: OPTIMAL<br/>
+                    SEC_LEVEL: MAXIMUM<br/>
+                    ENCRYPTION: AES-256
+                </div>
+</div>
+</div>
+</div>
+<!-- Background Image Replacement as requested (Conceptual) -->
+<div class="hidden">
+<img data-alt="Futuristic dark data network background with blue glowing nodes" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjBN4Wn5yevYrQbs5654EvhJkSymryCtif8WzckBrXwBZ1k9SXMO3-N9sL0fOpluTqq2yfpIjKT9SSmpdF9IqQ6pFzb5NgymQrPb0qd27s0RCm7VBo95osDgcKbp71au3cxxDl9FUXYWwFjKuEdu7b0cqWxcHdNptu2t54f2H_wMd_5mNol0GgSB0mzV8s33O5JpOvJ9afdCtlmbljJGRE6pAwZdUvw81xBuJE2IND5b1pS03tyq2yyFtt37hsIzEueGuhC4Mz2-Y"/>
+</div>
+</body></html>

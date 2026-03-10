@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #070c0c;
+    color: #e2e8f0;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: rgba(0, 242, 255, 0.3);
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #070c0c;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 242, 255, 0.3);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 242, 255, 0.5);
+  }
+}
+
+@layer components {
+  .glass-card {
+    background: rgba(15, 34, 35, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 242, 255, 0.15);
+  }
+
+  .neon-glow {
+    box-shadow: 0 0 15px rgba(0, 242, 255, 0.4);
+  }
+
+  .neon-glow-hover:hover {
+    box-shadow: 0 0 25px rgba(0, 242, 255, 0.6);
+  }
+
+  .neon-glow-strong {
+    box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+  }
+
+  .neon-glow-strong:hover {
+    box-shadow: 0 0 35px rgba(0, 242, 255, 0.5);
+  }
+
+  .glass-input {
+    @apply w-full bg-white/5 border border-primary/10 rounded-lg px-4 py-4 text-white 
+           placeholder-transparent focus:outline-none focus:border-primary/50 
+           focus:ring-1 focus:ring-primary/30 transition-all duration-300;
+  }
+
+  .floating-label {
+    @apply absolute left-4 top-4 text-slate-500 transition-all duration-300 
+           pointer-events-none origin-left;
+  }
+
+  .glass-input:focus ~ .floating-label,
+  .glass-input:not(:placeholder-shown) ~ .floating-label {
+    transform: translateY(-1.5rem) scale(0.85);
+    color: #00f2ff;
+  }
+
+  .btn-primary {
+    @apply w-full bg-primary text-[#070c0c] font-bold py-4 rounded-lg 
+           neon-glow-strong transform hover:-translate-y-0.5 
+           active:translate-y-0 active:scale-[0.98] transition-all duration-200;
+  }
+
+  .btn-secondary {
+    @apply w-full flex items-center justify-center gap-3 bg-white/5 
+           border border-slate-700/50 hover:bg-white/10 text-slate-100 
+           font-medium py-3 rounded-lg transition-all duration-200;
+  }
+
+  .gradient-line {
+    @apply w-full h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent;
+  }
+}
