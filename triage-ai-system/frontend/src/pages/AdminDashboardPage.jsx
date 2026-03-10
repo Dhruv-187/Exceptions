@@ -11,13 +11,24 @@ const AdminDashboardPage = () => {
   const [newTriage, setNewTriage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all"); // "all", "WAITING", "ASSIGNED", "IN_TREATMENT", "COMPLETED"
-  const [doctorName, setDoctorName] = useState("");
+  const [doctors, setDoctors] = useState([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState("");
+  const [recommendedDoctor, setRecommendedDoctor] = useState(null);
 
   const STATUS_COLORS = {
     "WAITING": { text: "text-yellow-400", bg: "bg-yellow-500/20", border: "border-yellow-500/30" },
     "ASSIGNED": { text: "text-purple-400", bg: "bg-purple-500/20", border: "border-purple-500/30" },
     "IN_TREATMENT": { text: "text-blue-400", bg: "bg-blue-500/20", border: "border-blue-500/30" },
     "COMPLETED": { text: "text-green-400", bg: "bg-green-500/20", border: "border-green-500/30" },
+  };
+
+  const fetchDoctors = async () => {
+    try {
+      const res = await triageAPI.getDoctors();
+      setDoctors(res.data.doctors || []);
+    } catch (e) {
+      console.error("Failed to fetch doctors", e);
+    }
   };
 
   const fetchData = async () => {
@@ -27,17 +38,33 @@ const AdminDashboardPage = () => {
       setQueue(qRes.data);
       const aRes = await triageAPI.getAnalytics();
       setAnalytics(aRes.data);
+      // Refresh doctors list to update availability status
+      const dRes = await triageAPI.getDoctors();
+      setDoctors(dRes.data.doctors || []);
     } catch (e) {
       console.error(e);
       // Fail silently on interval, loud on user action
     }
   };
 
+  const fetchRecommendedDoctor = async (patientId) => {
+    try {
+      const res = await triageAPI.getRecommendedDoctor(patientId);
+      setRecommendedDoctor(res.data);
+      setSelectedDoctorId(res.data.recommended_doctor.id);
+    } catch (e) {
+      console.error("Failed to fetch recommended doctor", e);
+      setRecommendedDoctor(null);
+    }
+  };
+
   const handleAssignDoctor = async (patientId) => {
     try {
-      await triageAPI.assignDoctor({ patient_id: patientId, doctor_name: doctorName || "Unspecified" });
-      toast.success("Doctor assigned successfully");
-      setDoctorName("");
+      await triageAPI.assignDoctor(patientId, selectedDoctorId);
+      const doctor = doctors.find(d => d.id === selectedDoctorId);
+      toast.success(`Assigned to ${doctor?.name || 'Doctor'} (${doctor?.specialty || 'Specialist'})`);
+      setSelectedDoctorId("");
+      setRecommendedDoctor(null);
       fetchData();
       if (selectedPatient?.patient?.id === patientId) {
         handlePatientClick(patientId);
@@ -73,6 +100,20 @@ const AdminDashboardPage = () => {
     }
   };
 
+  const handleDeletePatient = async (patientId, patientName) => {
+    if (!window.confirm(`Are you sure you want to delete ${patientName}'s record? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await triageAPI.deletePatient(patientId);
+      toast.success(`Patient record deleted successfully`);
+      setSelectedPatient(null);
+      fetchData();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Failed to delete patient record");
+    }
+  };
+
   const handleStatusChange = async (patientId, newStatus) => {
     try {
       await triageAPI.updateStatus({ patient_id: patientId, status: newStatus });
@@ -91,6 +132,7 @@ const AdminDashboardPage = () => {
     : queue.filter(p => p.status === statusFilter);
 
   useEffect(() => {
+    fetchDoctors(); // Fetch doctors list on mount
     fetchData();
     const timer = setInterval(fetchData, 5000); // 5s refresh
     return () => clearInterval(timer);
@@ -101,6 +143,14 @@ const AdminDashboardPage = () => {
       const res = await triageAPI.getPatientDetail(id);
       setSelectedPatient(res.data);
       setNewTriage(res.data.triage?.triage_level || "Unknown");
+      
+      // Fetch recommended doctor if patient is WAITING
+      if (res.data.patient.status === "WAITING") {
+        fetchRecommendedDoctor(id);
+      } else {
+        setRecommendedDoctor(null);
+        setSelectedDoctorId("");
+      }
     } catch (e) {
       toast.error("Failed to load patient details");
     }
@@ -199,7 +249,11 @@ const AdminDashboardPage = () => {
                       </div>
                       <div className="flex items-center gap-4 text-xs text-slate-500 font-mono tracking-widest">
                         <span>Wait: {p.waiting_minutes}m</span>
-                        {p.assigned_doctor && <span className="text-purple-400">Dr: {p.assigned_doctor}</span>}
+                        {p.assigned_doctor && (
+                          <span className="text-purple-400">
+                            {p.assigned_doctor}{p.assigned_specialty ? ` (${p.assigned_specialty})` : ''}
+                          </span>
+                        )}
                         {p.registration_time && <span>Reg: {new Date(p.registration_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>}
                       </div>
                     </div>
@@ -250,7 +304,13 @@ const AdminDashboardPage = () => {
                     </div>
                     <p className="text-sm text-slate-400">{selectedPatient.patient.age} y/o {selectedPatient.patient.gender}</p>
                     {selectedPatient.patient.assigned_doctor && (
-                      <p className="text-sm text-purple-400 mt-1">Assigned to: {selectedPatient.patient.assigned_doctor}</p>
+                      <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                        <p className="text-xs text-slate-400">Assigned to:</p>
+                        <p className="text-sm text-purple-400 font-medium">{selectedPatient.patient.assigned_doctor}</p>
+                        {selectedPatient.patient.assigned_specialty && (
+                          <p className="text-xs text-slate-500">{selectedPatient.patient.assigned_specialty}</p>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -260,23 +320,52 @@ const AdminDashboardPage = () => {
                     <div className="space-y-3">
                       {/* Assign Doctor - Only for WAITING status */}
                       {selectedPatient.patient.status === "WAITING" && (
-                        <div className="bg-black/40 p-3 rounded-lg border border-purple-500/20">
-                          <p className="text-[10px] uppercase tracking-widest text-purple-400 mb-2">Assign Doctor</p>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              placeholder="Doctor name..."
-                              value={doctorName}
-                              onChange={(e) => setDoctorName(e.target.value)}
-                              className="flex-1 bg-black/50 border border-primary/20 rounded-lg px-3 py-2 text-white text-sm focus:border-primary focus:outline-none"
-                            />
-                            <button
-                              onClick={() => handleAssignDoctor(selectedPatient.patient.id)}
-                              className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
-                            >
-                              Assign
-                            </button>
-                          </div>
+                        <div className="bg-black/40 p-4 rounded-lg border border-purple-500/20">
+                          <p className="text-[10px] uppercase tracking-widest text-purple-400 mb-3">Assign Doctor</p>
+                          
+                          {/* Recommended Doctor */}
+                          {recommendedDoctor && (
+                            <div className="mb-3 p-2 bg-green-500/10 border border-green-500/30 rounded-lg">
+                              <p className="text-[10px] uppercase tracking-widest text-green-400 mb-1">AI Recommendation</p>
+                              <p className="text-sm text-white font-medium">{recommendedDoctor.recommended_doctor.name}</p>
+                              <p className="text-xs text-slate-400">{recommendedDoctor.recommended_doctor.specialty}</p>
+                              <p className="text-[10px] text-slate-500 mt-1 italic">{recommendedDoctor.reason}</p>
+                              {doctors.find(d => d.id === recommendedDoctor.recommended_doctor.id && !d.available) && (
+                                <p className="text-[10px] text-red-400 mt-1">⚠️ Currently treating another patient</p>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Doctor Dropdown */}
+                          <select
+                            value={selectedDoctorId}
+                            onChange={(e) => setSelectedDoctorId(e.target.value)}
+                            className="w-full bg-black/50 border border-primary/20 rounded-lg px-3 py-2 text-white text-sm focus:border-primary focus:outline-none mb-2"
+                          >
+                            <option value="">Select a doctor...</option>
+                            {doctors.map((doctor) => (
+                              <option 
+                                key={doctor.id} 
+                                value={doctor.id}
+                                disabled={!doctor.available}
+                                className={!doctor.available ? 'text-red-400' : ''}
+                              >
+                                {doctor.name} - {doctor.specialty} {!doctor.available ? `(Busy - treating ${doctor.current_patient})` : '✓ Available'}
+                              </option>
+                            ))}
+                          </select>
+                          
+                          <button
+                            onClick={() => handleAssignDoctor(selectedPatient.patient.id)}
+                            disabled={!selectedDoctorId}
+                            className={`w-full py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${
+                              selectedDoctorId 
+                                ? "bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/50 text-purple-400"
+                                : "bg-slate-800/50 border border-slate-700 text-slate-500 cursor-not-allowed"
+                            }`}
+                          >
+                            Assign Selected Doctor
+                          </button>
                         </div>
                       )}
                       
@@ -307,6 +396,14 @@ const AdminDashboardPage = () => {
                           <p className="text-slate-500 text-[10px] mt-1">Patient can submit new triage if needed</p>
                         </div>
                       )}
+                      
+                      {/* Delete Record Button */}
+                      <button
+                        onClick={() => handleDeletePatient(selectedPatient.patient.id, selectedPatient.patient.name)}
+                        className="w-full py-3 mt-4 bg-red-500/20 hover:bg-red-500/30 border border-red-500/50 text-red-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-all"
+                      >
+                        Delete Record
+                      </button>
                     </div>
                   </div>
 

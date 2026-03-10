@@ -51,9 +51,12 @@ export const triageAPI = {
   getPatientDetail: (patientId) => triageApiInstance.get(`/patient/${patientId}`),
   overrideTriage: (data) => triageApiInstance.post('/override-triage', data),
   updateStatus: (data) => triageApiInstance.post('/update-status', data),
-  assignDoctor: (data) => triageApiInstance.post('/assign-doctor', data),
+  getDoctors: () => triageApiInstance.get('/doctors'),
+  getRecommendedDoctor: (patientId) => triageApiInstance.get(`/doctors/recommend/${patientId}`),
+  assignDoctor: (patientId, doctorId) => triageApiInstance.post('/assign-doctor', { patient_id: patientId, doctor_id: doctorId }),
   startTreatment: (patientId) => triageApiInstance.post('/start-treatment', { patient_id: patientId }),
   completeTreatment: (patientId) => triageApiInstance.post('/complete-treatment', { patient_id: patientId }),
+  deletePatient: (patientId) => triageApiInstance.delete(`/patient/${patientId}`),
   getAnalytics: () => triageApiInstance.get('/analytics'),
 };
 

@@ -41,13 +41,111 @@ class StatusUpdateRequest(BaseModel):
     patient_id: int
     status: str  # "WAITING", "ASSIGNED", "IN_TREATMENT", "COMPLETED"
 
+class PatientIdRequest(BaseModel):
+    patient_id: int
+
 class DoctorAssignmentRequest(BaseModel):
     patient_id: int
-    doctor_name: str = ""
+    doctor_id: str = ""  # Doctor ID from DOCTORS list
 
 # Valid patient statuses (workflow: WAITING → ASSIGNED → IN_TREATMENT → COMPLETED)
 VALID_STATUSES = ["WAITING", "ASSIGNED", "IN_TREATMENT", "COMPLETED"]
 ACTIVE_STATUSES = ["WAITING", "ASSIGNED", "IN_TREATMENT"]  # Statuses that count as "active" in queue
+
+# ------- Doctor Specialties Database -------
+DOCTORS = [
+    {
+        "id": "dr_cardio_01",
+        "name": "Dr. Sarah Mitchell",
+        "specialty": "Cardiologist",
+        "keywords": ["chest pain", "heart", "cardiac", "palpitation", "angina", "hypertension", "blood pressure", "heart attack", "arrhythmia", "cardiovascular", "coronary"]
+    },
+    {
+        "id": "dr_neuro_01",
+        "name": "Dr. James Chen",
+        "specialty": "Neurologist",
+        "keywords": ["headache", "migraine", "brain", "seizure", "stroke", "dizziness", "numbness", "paralysis", "memory", "confusion", "tremor", "neuropathy", "epilepsy"]
+    },
+    {
+        "id": "dr_pulmo_01",
+        "name": "Dr. Emily Rodriguez",
+        "specialty": "Pulmonologist",
+        "keywords": ["breathing", "respiratory", "lung", "asthma", "cough", "shortness of breath", "pneumonia", "bronchitis", "wheezing", "oxygen", "spo2", "pulmonary"]
+    },
+    {
+        "id": "dr_gastro_01",
+        "name": "Dr. Michael Park",
+        "specialty": "Gastroenterologist",
+        "keywords": ["stomach", "abdomen", "abdominal", "nausea", "vomiting", "diarrhea", "constipation", "digestive", "liver", "gastric", "intestinal", "bowel", "acid reflux"]
+    },
+    {
+        "id": "dr_ortho_01",
+        "name": "Dr. Amanda Foster",
+        "specialty": "Orthopedist",
+        "keywords": ["bone", "fracture", "joint", "back pain", "spine", "muscle", "arthritis", "knee", "shoulder", "hip", "ligament", "sprain", "orthopedic"]
+    },
+    {
+        "id": "dr_endo_01",
+        "name": "Dr. Robert Kim",
+        "specialty": "Endocrinologist",
+        "keywords": ["diabetes", "thyroid", "hormone", "insulin", "glucose", "blood sugar", "metabolic", "obesity", "adrenal", "pituitary"]
+    },
+    {
+        "id": "dr_derm_01",
+        "name": "Dr. Lisa Wang",
+        "specialty": "Dermatologist",
+        "keywords": ["skin", "rash", "itching", "allergy", "eczema", "psoriasis", "acne", "wound", "burn", "infection", "dermatitis"]
+    },
+    {
+        "id": "dr_ent_01",
+        "name": "Dr. David Thompson",
+        "specialty": "ENT Specialist",
+        "keywords": ["ear", "nose", "throat", "sinus", "hearing", "tonsil", "voice", "swallowing", "nasal", "vertigo"]
+    },
+    {
+        "id": "dr_nephro_01",
+        "name": "Dr. Jessica Lee",
+        "specialty": "Nephrologist",
+        "keywords": ["kidney", "renal", "urinary", "dialysis", "creatinine", "urine", "bladder"]
+    },
+    {
+        "id": "dr_em_01",
+        "name": "Dr. William Brown",
+        "specialty": "Emergency Medicine",
+        "keywords": ["emergency", "trauma", "accident", "critical", "urgent", "severe", "acute", "unconscious", "bleeding"]
+    },
+    {
+        "id": "dr_general_01",
+        "name": "Dr. Patricia Davis",
+        "specialty": "General Physician",
+        "keywords": ["fever", "cold", "flu", "fatigue", "weakness", "general", "checkup", "routine"]
+    }
+]
+
+def get_recommended_doctor(symptoms_text: str, triage_level: str = None) -> dict:
+    """Returns the best matching doctor based on symptoms."""
+    symptoms_lower = symptoms_text.lower()
+    
+    # If critical/urgent and has trauma keywords, assign to Emergency
+    if triage_level in ["Critical", "Urgent"]:
+        emergency_keywords = ["trauma", "accident", "unconscious", "severe bleeding", "critical"]
+        if any(kw in symptoms_lower for kw in emergency_keywords):
+            return next((d for d in DOCTORS if d["specialty"] == "Emergency Medicine"), DOCTORS[-1])
+    
+    # Score each doctor based on keyword matches
+    scores = []
+    for doctor in DOCTORS:
+        score = sum(1 for kw in doctor["keywords"] if kw in symptoms_lower)
+        scores.append((doctor, score))
+    
+    # Sort by score descending
+    scores.sort(key=lambda x: x[1], reverse=True)
+    
+    # If best score > 0, return that doctor; else return General Physician
+    if scores[0][1] > 0:
+        return scores[0][0]
+    
+    return next((d for d in DOCTORS if d["specialty"] == "General Physician"), DOCTORS[-1])
 
 # ------- Routes -------
 
@@ -219,6 +317,7 @@ def get_patients_queue(request: Request, include_completed: bool = False):
             "confidence": t_conf,
             "status": p.get("status", "WAITING"),
             "assigned_doctor": p.get("assigned_doctor"),
+            "assigned_specialty": p.get("assigned_specialty"),
             "arrival_time": p["arrival_time"].isoformat(),
             "registration_time": p.get("registration_time", p["arrival_time"]).isoformat(),
             "triage_time": p.get("triage_time").isoformat() if p.get("triage_time") else None,
@@ -252,6 +351,8 @@ def get_patient_detail(request: Request, patient_id: int):
             "symptoms_text": patient.get("symptoms_text", ""),
             "status": patient.get("status", "WAITING"),
             "assigned_doctor": patient.get("assigned_doctor"),
+            "assigned_doctor_id": patient.get("assigned_doctor_id"),
+            "assigned_specialty": patient.get("assigned_specialty"),
             "arrival_time": patient["arrival_time"].isoformat(),
             "registration_time": patient.get("registration_time", patient["arrival_time"]).isoformat(),
             "triage_time": patient.get("triage_time").isoformat() if patient.get("triage_time") else None,
@@ -319,6 +420,50 @@ def update_patient_status(request: Request, data: StatusUpdateRequest):
     }
 
 
+@router.get("/doctors")
+def get_all_doctors(request: Request):
+    """Returns list of all available doctors with their current availability status."""
+    doctors_list = []
+    for d in DOCTORS:
+        # Check if doctor is currently treating someone
+        treating_patient = patients_collection.find_one({
+            "assigned_doctor_id": d["id"],
+            "status": "IN_TREATMENT"
+        })
+        doctors_list.append({
+            "id": d["id"],
+            "name": d["name"],
+            "specialty": d["specialty"],
+            "available": treating_patient is None,
+            "current_patient": treating_patient.get("name") if treating_patient else None
+        })
+    return {"doctors": doctors_list}
+
+
+@router.get("/doctors/recommend/{patient_id}")
+def get_recommended_doctor_for_patient(request: Request, patient_id: int):
+    """Returns the recommended doctor based on patient's symptoms."""
+    patient = patients_collection.find_one({"patient_id": patient_id})
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Get triage result if available
+    triage = triage_results_collection.find_one({"patient_id": patient_id})
+    triage_level = triage["triage_level"] if triage else None
+    
+    symptoms_text = patient.get("symptoms_text", "")
+    recommended = get_recommended_doctor(symptoms_text, triage_level)
+    
+    return {
+        "recommended_doctor": {
+            "id": recommended["id"],
+            "name": recommended["name"],
+            "specialty": recommended["specialty"]
+        },
+        "reason": f"Based on symptoms matching {recommended['specialty']} expertise"
+    }
+
+
 @router.post("/assign-doctor")
 def assign_doctor(request: Request, data: DoctorAssignmentRequest):
     """Assigns a doctor to a patient and updates status to ASSIGNED."""
@@ -332,12 +477,36 @@ def assign_doctor(request: Request, data: DoctorAssignmentRequest):
             detail=f"Can only assign doctor to patients with WAITING status. Current status: {patient.get('status')}"
         )
     
+    # Find doctor by ID
+    doctor = next((d for d in DOCTORS if d["id"] == data.doctor_id), None)
+    if not doctor and data.doctor_id:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    
+    # If no doctor_id provided, use recommended doctor
+    if not doctor:
+        triage = triage_results_collection.find_one({"patient_id": data.patient_id})
+        triage_level = triage["triage_level"] if triage else None
+        doctor = get_recommended_doctor(patient.get("symptoms_text", ""), triage_level)
+    
+    # Check if doctor is already treating another patient (IN_TREATMENT status)
+    existing_patient = patients_collection.find_one({
+        "assigned_doctor_id": doctor["id"],
+        "status": "IN_TREATMENT"
+    })
+    if existing_patient:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dr. {doctor['name']} is currently treating another patient ({existing_patient.get('name', 'Unknown')}). Please wait until treatment is completed or choose another doctor."
+        )
+    
     now = datetime.utcnow()
     patients_collection.update_one(
         {"patient_id": data.patient_id},
         {"$set": {
             "status": "ASSIGNED",
-            "assigned_doctor": data.doctor_name if data.doctor_name else "Unspecified",
+            "assigned_doctor": doctor["name"],
+            "assigned_doctor_id": doctor["id"],
+            "assigned_specialty": doctor["specialty"],
             "assigned_time": now
         }}
     )
@@ -346,13 +515,14 @@ def assign_doctor(request: Request, data: DoctorAssignmentRequest):
         "status": "success",
         "patient_id": data.patient_id,
         "new_status": "ASSIGNED",
-        "assigned_doctor": data.doctor_name if data.doctor_name else "Unspecified",
+        "assigned_doctor": doctor["name"],
+        "assigned_specialty": doctor["specialty"],
         "assigned_at": now.isoformat()
     }
 
 
 @router.post("/start-treatment")
-def start_treatment(request: Request, data: StatusUpdateRequest):
+def start_treatment(request: Request, data: PatientIdRequest):
     """Marks a patient as IN_TREATMENT."""
     patient = patients_collection.find_one({"patient_id": data.patient_id})
     if not patient:
@@ -382,7 +552,7 @@ def start_treatment(request: Request, data: StatusUpdateRequest):
 
 
 @router.post("/complete-treatment")
-def complete_treatment(request: Request, data: StatusUpdateRequest):
+def complete_treatment(request: Request, data: PatientIdRequest):
     """Marks a patient as COMPLETED. Patient can submit new triage after this."""
     patient = patients_collection.find_one({"patient_id": data.patient_id})
     if not patient:
@@ -453,4 +623,23 @@ def get_analytics(request: Request):
         "critical_percentage": round((critical_count / total) * 100, 2),
         "override_frequency_percentage": round((override_count / total) * 100, 2),
         "prediction_distribution": distribution,
+    }
+
+
+@router.delete("/patient/{patient_id}")
+def delete_patient(request: Request, patient_id: int):
+    """Deletes a patient record and associated triage results from the database."""
+    patient = patients_collection.find_one({"patient_id": patient_id})
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Delete from patients collection
+    patients_collection.delete_one({"patient_id": patient_id})
+    
+    # Delete associated triage results
+    triage_results_collection.delete_one({"patient_id": patient_id})
+    
+    return {
+        "status": "success",
+        "message": f"Patient {patient_id} and associated records deleted successfully"
     }

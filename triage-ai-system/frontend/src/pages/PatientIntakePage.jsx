@@ -11,6 +11,56 @@ const TRIAGE_COLORS = {
   'Non Urgent': { text: 'text-green-400', bg: 'bg-green-400/10', border: 'border-green-400/30', glow: 'shadow-[0_0_30px_rgba(74,222,128,0.3)]' },
 };
 
+// Common symptoms for quick selection
+const COMMON_SYMPTOMS = [
+  'Chest pain', 'Shortness of breath', 'Headache', 'Dizziness', 'Nausea', 'Vomiting',
+  'Fatigue', 'Fever', 'Cough', 'Abdominal pain', 'Back pain', 'Joint pain',
+  'Numbness', 'Weakness', 'Confusion', 'Palpitations', 'Sweating', 'Anxiety',
+  'Blurred vision', 'Difficulty speaking', 'Loss of consciousness', 'Seizure',
+  'Swelling', 'Rash', 'Bleeding', 'Difficulty breathing', 'Wheezing', 'Sore throat'
+];
+
+// Common medical history conditions
+const COMMON_CONDITIONS = [
+  'Hypertension', 'Diabetes', 'Heart Disease', 'Asthma', 'COPD', 'Stroke',
+  'Cancer', 'Kidney Disease', 'Liver Disease', 'Thyroid Disorder', 'Arthritis',
+  'Depression', 'Anxiety Disorder', 'Epilepsy', 'HIV/AIDS', 'Obesity'
+];
+
+// Preset symptom combinations for common emergencies
+const SYMPTOM_PRESETS = [
+  {
+    name: 'Heart Attack',
+    color: 'red',
+    symptoms: ['Crushing chest pain', 'Pain radiating to left arm', 'Shortness of breath', 'Profuse sweating', 'Nausea', 'Anxiety']
+  },
+  {
+    name: 'Stroke',
+    color: 'purple',
+    symptoms: ['Sudden severe headache', 'Facial drooping', 'Arm weakness', 'Difficulty speaking', 'Confusion', 'Vision problems']
+  },
+  {
+    name: 'Asthma Attack',
+    color: 'blue',
+    symptoms: ['Severe shortness of breath', 'Wheezing', 'Chest tightness', 'Rapid breathing', 'Difficulty speaking', 'Cyanosis']
+  },
+  {
+    name: 'Allergic Reaction',
+    color: 'orange',
+    symptoms: ['Swelling of face/throat', 'Difficulty breathing', 'Hives/rash', 'Itching', 'Nausea', 'Dizziness']
+  },
+  {
+    name: 'Diabetic Emergency',
+    color: 'yellow',
+    symptoms: ['Confusion', 'Excessive thirst', 'Frequent urination', 'Fruity breath odor', 'Weakness', 'Nausea']
+  },
+  {
+    name: 'Respiratory Infection',
+    color: 'cyan',
+    symptoms: ['Fever', 'Cough', 'Sore throat', 'Body aches', 'Fatigue', 'Congestion']
+  }
+];
+
 const InputField = ({ label, required, ...props }) => (
   <div>
     <label className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold block mb-2">{label} {required && <span className="text-primary">*</span>}</label>
@@ -26,9 +76,41 @@ const PatientIntakePage = () => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [selectedSymptoms, setSelectedSymptoms] = useState([]);
+  const [selectedConditions, setSelectedConditions] = useState([]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  // Toggle a symptom selection
+  const toggleSymptom = (symptom) => {
+    setSelectedSymptoms(prev => {
+      const newSymptoms = prev.includes(symptom) 
+        ? prev.filter(s => s !== symptom) 
+        : [...prev, symptom];
+      // Update the symptoms_text field
+      setFormData(fd => ({ ...fd, symptoms_text: newSymptoms.join(', ') }));
+      return newSymptoms;
+    });
+  };
+
+  // Apply a preset (replaces current symptoms)
+  const applyPreset = (preset) => {
+    setSelectedSymptoms(preset.symptoms);
+    setFormData(fd => ({ ...fd, symptoms_text: preset.symptoms.join(', ') }));
+  };
+
+  // Toggle a medical condition
+  const toggleCondition = (condition) => {
+    setSelectedConditions(prev => {
+      const newConditions = prev.includes(condition)
+        ? prev.filter(c => c !== condition)
+        : [...prev, condition];
+      // Update the medical_history field
+      setFormData(fd => ({ ...fd, medical_history: newConditions.join(', ') }));
+      return newConditions;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -117,8 +199,33 @@ const PatientIntakePage = () => {
                       <option value="Female">Female</option>
                     </select>
                   </div>
-                  <InputField label="Medical History" name="medical_history" value={formData.medical_history} onChange={handleChange} type="text" placeholder="Hypertension, Diabetes" />
                 </div>
+              </div>
+
+              {/* Medical History - Enhanced with clickable chips */}
+              <div>
+                <h3 className="text-primary text-xs font-black uppercase tracking-[0.25em] mb-4 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full"></span> Medical History
+                </h3>
+                <p className="text-[10px] text-slate-500 uppercase tracking-[0.15em] mb-3">Tap conditions to select (or type custom)</p>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {COMMON_CONDITIONS.map((condition) => (
+                    <button
+                      key={condition}
+                      type="button"
+                      onClick={() => toggleCondition(condition)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                        selectedConditions.includes(condition)
+                          ? 'bg-primary/30 text-primary border border-primary/50 shadow-[0_0_10px_rgba(0,242,255,0.2)]'
+                          : 'bg-black/30 text-slate-400 border border-white/10 hover:border-primary/30 hover:text-primary/80'
+                      }`}
+                    >
+                      {selectedConditions.includes(condition) && <span className="mr-1">✓</span>}
+                      {condition}
+                    </button>
+                  ))}
+                </div>
+                <InputField label="Additional conditions (comma-separated)" name="medical_history" value={formData.medical_history} onChange={handleChange} type="text" placeholder="Or type additional conditions..." />
               </div>
 
               {/* Vital Signs */}
@@ -135,13 +242,77 @@ const PatientIntakePage = () => {
                 </div>
               </div>
 
-              {/* Symptoms */}
+              {/* Symptoms - Enhanced with clickable chips and presets */}
               <div>
                 <h3 className="text-primary text-xs font-black uppercase tracking-[0.25em] mb-4 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-primary rounded-full"></span> Chief Complaint
                 </h3>
+                
+                {/* Quick Presets */}
+                <div className="mb-4">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.15em] mb-2">Quick Presets (tap to apply)</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SYMPTOM_PRESETS.map((preset) => {
+                      const colorMap = {
+                        red: 'bg-red-500/20 border-red-500/40 text-red-400 hover:bg-red-500/30',
+                        purple: 'bg-purple-500/20 border-purple-500/40 text-purple-400 hover:bg-purple-500/30',
+                        blue: 'bg-blue-500/20 border-blue-500/40 text-blue-400 hover:bg-blue-500/30',
+                        orange: 'bg-orange-500/20 border-orange-500/40 text-orange-400 hover:bg-orange-500/30',
+                        yellow: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/30',
+                        cyan: 'bg-cyan-500/20 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30',
+                      };
+                      return (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => applyPreset(preset)}
+                          className={`px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-all duration-200 ${colorMap[preset.color]}`}
+                        >
+                          {preset.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Common Symptoms Chips */}
+                <div className="mb-3">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-[0.15em] mb-2">Tap symptoms to add</p>
+                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-black/20 rounded-xl border border-white/5">
+                    {COMMON_SYMPTOMS.map((symptom) => (
+                      <button
+                        key={symptom}
+                        type="button"
+                        onClick={() => toggleSymptom(symptom)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-200 ${
+                          selectedSymptoms.includes(symptom)
+                            ? 'bg-primary/30 text-primary border border-primary/50'
+                            : 'bg-black/40 text-slate-400 border border-white/10 hover:border-primary/30 hover:text-slate-300'
+                        }`}
+                      >
+                        {selectedSymptoms.includes(symptom) && <span className="mr-1">✓</span>}
+                        {symptom}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selected count */}
+                {selectedSymptoms.length > 0 && (
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] text-primary uppercase tracking-widest">{selectedSymptoms.length} symptom(s) selected</span>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedSymptoms([]); setFormData(fd => ({ ...fd, symptoms_text: '' })); }}
+                      className="text-[10px] text-red-400 hover:text-red-300 uppercase tracking-widest"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+
                 <label className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold block mb-2">Detailed symptoms <span className="text-primary">*</span></label>
-                <textarea required name="symptoms_text" value={formData.symptoms_text} onChange={handleChange} rows="3" className="w-full bg-black/50 border border-primary/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-primary/60 focus:shadow-[0_0_10px_rgba(0,242,255,0.1)] transition-all duration-300 resize-none" placeholder="Severe crushing chest pain radiating to left arm, shortness of breath, profuse sweating..."></textarea>
+                <textarea required name="symptoms_text" value={formData.symptoms_text} onChange={handleChange} rows="3" className="w-full bg-black/50 border border-primary/15 rounded-xl px-4 py-3 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-primary/60 focus:shadow-[0_0_10px_rgba(0,242,255,0.1)] transition-all duration-300 resize-none" placeholder="Selected symptoms appear here, or type custom symptoms..."></textarea>
               </div>
 
               {/* Submit */}
@@ -236,6 +407,8 @@ const PatientIntakePage = () => {
                   <button
                     onClick={() => {
                       setResult(null);
+                      setSelectedSymptoms([]);
+                      setSelectedConditions([]);
                       setFormData({ name: '', age: '', gender: 'Male', symptoms_text: '', heart_rate: '', blood_pressure: '', temperature: '', spo2: '', respiratory_rate: '', medical_history: '' });
                     }}
                     className="w-full py-3 rounded-xl border border-primary/30 text-primary text-xs font-bold uppercase tracking-[0.2em] hover:bg-primary/10 transition-all duration-300"
